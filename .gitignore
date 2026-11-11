@@ -22,3 +22,7 @@ Thumbs.db
 .vscode/
 build/
 dist/
+node_modules/
+*.pyc
+.benchmarks/
+.env
