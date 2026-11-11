@@ -1,0 +1,19 @@
+rule_id: register_form
+name: 企业登记表
+version: 1.0.0
+form_type: register
+description: 适配企业登记、主体资格、注册资本与标签等登记字段
+match: {form_selector: "form#registerForm", marker: 'data-form-type="register"'}
+fields:
+  reg_no: {label: 登记编号, selector: 'input[name="reg_no"]', attr: value, type: text, required: true, validators: [{type: regex, pattern: '^DJ-\d{4}-\d{4}$', message: 登记编号应为 DJ-年份-四位序号}]}
+  entity_name: {label: 企业名称, selector: '#registerForm .entity-name', type: text, required: true, validators: [{type: min_length, value: 2, message: 企业名称至少 2 个字符}]}
+  entity_type: {label: 企业类型, selector: 'select[name="entity_type"]', type: enum, required: true, validators: [{type: enum, values: [有限责任公司, 股份有限公司, 合伙企业, 个人独资企业], message: 企业类型不在允许范围内}]}
+  legal_person: {label: 法定代表人, selector: 'input[name="legal_person"]', attr: value, type: text, required: true}
+  registered_capital: {label: 注册资本, selector: '#registerForm .registered-capital', type: number, required: true, validators: [{type: range, min: 0, message: 注册资本不得为负数}]}
+  establish_date: {label: 成立日期, selector: 'input[name="establish_date"]', attr: value, type: date, required: true}
+  address: {label: 注册地址, selector: '#registerForm .address', type: text, required: true}
+  status: {label: 登记状态, selector: 'select[name="status"]', type: enum, required: true, validators: [{type: enum, values: [存续, 在业, 注销, 吊销], message: 登记状态不在允许范围内}]}
+  business_scope: {label: 经营范围, selector: 'textarea[name="business_scope"]', type: text, trim: true}
+  tags: {label: 企业标签, selector: 'input[name="tags"]:checked', attr: value, type: array, item_type: text, all: true, default: []}
+dedup: {primary_key: [reg_no], fuzzy_fields: [entity_name, address], threshold: 0.97}
+validations: [{type: compare, left: registered_capital, op: '>=', right: 0, level: error, message: 注册资本不得为负数}]

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>政务公示表</title></head>
+<body>
+<form id="publicForm" data-form-type="public">
+  <h1>政务公示表</h1>
+  <input type="hidden" name="doc_no" value="GS-2024-0016">
+  <table>
+    <tr data-field="title"><th>公示标题</th>
+      <td class="value">关于示例事项第0016批次公开公示</td></tr>
+    <tr data-field="publish_date"><th>发布日期</th>
+      <td class="value">2024-05-17</td></tr>
+  </table>
+  <label>发布单位
+    <select name="department">
+      <option value="综合服务处">综合服务处</option>
+      <option value="档案管理处" selected>档案管理处</option>
+      <option value="项目审核处">项目审核处</option>
+      <option value="政务公开处">政务公开处</option>
+    </select>
+  </label>
+  <input type="date" name="period_start" value="2024-05-17">
+  <input type="date" name="period_end" value="2024-05-22">
+  <span class="contact-phone">13900000016</span>
+  <textarea name="content">本批次示例事项公示内容，仅用于离线演示与测试，不包含任何真实信息。</textarea>
+  <label><input type="checkbox" name="categories" value="档案" checked> 档案</label>
+  <label><input type="checkbox" name="categories" value="公开" checked> 公开</label>
+  <div class="issuer-box">
+    <span class="office">档案管理处</span>
+    <span class="address" data-address="示例市示例区示例路016号"></span>
+  </div>
+</form>
+</body>
+</html>

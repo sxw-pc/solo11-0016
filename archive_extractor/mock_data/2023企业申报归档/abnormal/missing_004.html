@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>企业申报表</title></head>
+<body>
+<form id="declareForm" data-form-type="declare">
+  <h1>企业申报表</h1>
+  <input type="hidden" name="declare_no" value="SB-2023-0104">
+  <input type="hidden" name="credit_code" value="91110000MA00000104">
+  <div class="row"><span>申报单位</span><span class="applicant">示例申报企业0104</span></div>
+  <div class="row"><span>申报类别</span>
+    <select name="category">
+      <option value="">请选择</option>
+      <option value="税收优惠" >税收优惠</option>
+      <option value="财政补贴" >财政补贴</option>
+      <option value="项目扶持" >项目扶持</option>
+      <option value="人才奖励" selected>人才奖励</option>
+    </select>
+  </div>
+  <input type="text" name="contact_name" value="联系人0104">
+  <input type="text" name="contact_phone" value="13800000104">
+  <input type="date" name="apply_date" value="2023-01-02">
+  <div class="contact-box">
+    <span class="dept">综合部</span>
+    <span class="email" data-email="dept0104@example.test"></span>
+  </div>
+  <div class="project-name">档案数字化服务项目0104</div>
+  <label><input type="checkbox" name="is_urgent" value="否"> 加急</label>
+  <label><input type="radio" name="invoice_needed" value="是" > 需要发票</label>
+  <textarea name="scope">档案整理、扫描、目录著录与数据核验服务。</textarea>
+  <label><input type="checkbox" name="attachments" value="scan_0104.pdf" checked> 扫描件</label>
+  <label><input type="checkbox" name="attachments" value="list_0104.txt" checked> 材料清单</label>
+</form>
+</body>
+</html>

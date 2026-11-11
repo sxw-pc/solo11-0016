@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}提取结果{% endblock %}
+{% block content %}
+<h1>提取结果</h1>
+<div class="card">
+  <form class="filters" method="get" action="{{ url_for('results_page') }}">
+    <label class="field">关键词<input name="q" value="{{ filters.q }}" placeholder="文件或字段内容"></label>
+    <label class="field">任务<select name="task_id"><option value="">全部任务</option>
+      {% for task in tasks %}<option value="{{ task.id }}" {% if filters.task_id|string == task.id|string %}selected{% endif %}>#{{ task.id }} {{ task.name }}</option>{% endfor %}
+    </select></label>
+    <label class="field">表单类型<select name="form_type"><option value="">全部</option>
+      {% for value in ['declare', 'public', 'register'] %}<option value="{{ value }}" {% if filters.form_type == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select></label>
+    <label class="field">错误等级<select name="error_level"><option value="">全部</option>
+      {% for value in ['error', 'warning', 'info'] %}<option value="{{ value }}" {% if filters.error_level == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select></label>
+    <button type="submit">筛选</button><a class="button ghost" href="{{ url_for('results_page') }}">重置</a>
+  </form>
+</div>
+<div class="card">
+  <h2>共 {{ total }} 条有效结果</h2>
+  {% if results %}
+  <table>
+    <thead><tr><th>ID</th><th>文件</th><th>表单</th><th>状态 / 等级</th><th>内容摘要</th><th>规则版本</th><th>时间</th></tr></thead>
+    <tbody>
+    {% for row in results %}
+      <tr>
+        <td><a href="{{ url_for('result_detail', result_id=row.id) }}">#{{ row.id }}</a></td>
+        <td><a href="{{ url_for('result_detail', result_id=row.id) }}">{{ row.source_rel_path }}</a><div class="muted">v{{ row.version }} · {{ row.source_md5[:12] }}…</div></td>
+        <td>{{ row.form_type }}</td>
+        <td><span class="tag status-{{ row.status }}">{{ row.status }}</span>{% if row.error_level %}<div class="level-{{ row.error_level }}">{{ row.error_level }}</div>{% endif %}</td>
+        <td>{{ row.preview }}</td><td class="muted">{{ row.rule_version }}</td><td class="muted">{{ row.created_at }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">没有符合条件的结果。</p>{% endif %}
+  <div class="pager">
+    {% if page > 1 %}<a class="button ghost" href="{{ url_for('results_page', page=page-1, q=filters.q, task_id=filters.task_id, form_type=filters.form_type, error_level=filters.error_level) }}">上一页</a>{% endif %}
+    <span>第 {{ page }} / {{ pages }} 页</span>
+    {% if page < pages %}<a class="button ghost" href="{{ url_for('results_page', page=page+1, q=filters.q, task_id=filters.task_id, form_type=filters.form_type, error_level=filters.error_level) }}">下一页</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

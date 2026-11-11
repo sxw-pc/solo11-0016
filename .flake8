@@ -1,0 +1,4 @@
+[flake8]
+max-line-length = 100
+exclude = .git,__pycache__,build,dist,data,htmlcov,runtime*,archive_extractor/mock_data
+extend-ignore = E203,W503,IS001,I100,I201

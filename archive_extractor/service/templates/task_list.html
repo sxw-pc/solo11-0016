@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}任务管理{% endblock %}
+{% block content %}
+<h1>任务管理</h1>
+<div class="card">
+  <h2>新建采集任务</h2>
+  <p class="muted">仅扫描本地目录，不发起任何网络请求。请确认目录内的文件已获合法处理授权。</p>
+  <form method="post" action="{{ url_for('tasks_page') }}" class="filters">
+    <label class="field">任务名称<input name="name" placeholder="例如：2023 申报归档采集" required></label>
+    <label class="field">扫描目录<input name="root_dir" placeholder="输入本机绝对路径" size="38" required></label>
+    <label class="field">规则目录（可选）<input name="rules_dir" placeholder="留空使用内置规则" size="30"></label>
+    <label class="field">并发数<input name="concurrency" type="number" value="1" min="1" max="8"></label>
+    <button type="submit">创建任务</button>
+  </form>
+</div>
+<div class="card">
+  <h2>任务列表</h2>
+  {% if tasks %}
+  <table>
+    <thead><tr><th>ID</th><th>任务</th><th>状态</th><th>进度</th><th>成功 / 失败</th><th>创建时间</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for task in tasks %}{% set percent = (task.processed_files * 100 / task.total_files) if task.total_files else 0 %}
+      <tr>
+        <td>#{{ task.id }}</td>
+        <td><a href="{{ url_for('results_page', task_id=task.id) }}">{{ task.name }}</a><div class="muted">{{ task.root_dir }}</div></td>
+        <td><span class="tag status-{{ task.status }}">{{ task.status }}</span>
+          {% if task.error_message %}<div class="muted level-error">{{ task.error_message }}</div>{% endif %}</td>
+        <td>{{ task.processed_files }} / {{ task.total_files }}<div class="progress"><span style="width: {{ '%.1f'|format(percent) }}%"></span></div></td>
+        <td>{{ task.success_count }} / {{ task.failed_count }}</td>
+        <td class="muted">{{ task.created_at }}</td>
+        <td>
+          {% if task.status in ['pending', 'paused', 'completed', 'failed'] %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='start') }}"><button class="small" type="submit">启动/续跑</button></form>{% endif %}
+          {% if task.status == 'running' %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='pause') }}"><button class="small ghost" type="submit">暂停</button></form>{% endif %}
+          {% if task.status in ['failed', 'completed'] %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='retry') }}"><button class="small ghost" type="submit">重试失败</button></form>{% endif %}
+          {% if task.status != 'running' %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='delete') }}"><button class="small danger" type="submit">删除</button></form>{% endif %}
+          <div style="margin-top:5px">
+            <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='xlsx') }}">Excel</a>
+            <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='csv') }}">CSV</a>
+            <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='json') }}">JSON</a>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">暂无任务。可在上方创建任务，或通过 CLI 执行演示。</p>{% endif %}
+</div>
+{% endblock %}

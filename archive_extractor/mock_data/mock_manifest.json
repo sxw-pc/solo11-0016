@@ -1,0 +1,25 @@
+{
+  "name": "档采匠内置合成归档数据",
+  "version": "1.0.0",
+  "generated_by": "档采匠内置合成数据流程",
+  "note": "所有单位、姓名、电话、地址、编号均为程序生成的虚拟数据。",
+  "root": ".",
+  "expected": {
+    "total_html_files": 80,
+    "declare_forms": 50,
+    "public_forms": 25,
+    "register_forms": 3,
+    "normal_declare": 30,
+    "abnormal_missing_fields": 5,
+    "abnormal_format_values": 5,
+    "broken_files": 2,
+    "duplicate_files": 10,
+    "attachments_non_html": 2,
+    "parse_successes": 78,
+    "parse_failures": 2,
+    "dedup_reports": 10,
+    "active_valid_results": 58,
+    "active_invalid_results": 10,
+    "logically_deleted_results": 10
+  }
+}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>企业登记表</title></head>
+<body>
+<form id="registerForm" data-form-type="register">
+  <h1>企业登记表</h1>
+  <input type="hidden" name="reg_no" value="DJ-2024-0002">
+  <div class="entity-name">示例登记企业0002</div>
+  <select name="entity_type">
+    <option value="有限责任公司" selected>有限责任公司</option>
+    <option value="股份有限公司">股份有限公司</option>
+    <option value="合伙企业">合伙企业</option>
+  </select>
+  <input type="text" name="legal_person" value="法定代表人0002">
+  <div class="registered-capital">200000</div>
+  <input type="date" name="establish_date" value="2020-01-02">
+  <div class="address">示例市示例区登记路002号</div>
+  <select name="status">
+    <option value="存续" selected>存续</option>
+    <option value="在业">在业</option>
+    <option value="注销">注销</option>
+  </select>
+  <textarea name="business_scope">档案技术服务、数据处理服务（合成示例）。</textarea>
+  <label><input type="checkbox" name="tags" value="重点" checked> 重点</label>
+  <label><input type="checkbox" name="tags" value="归档" checked> 归档</label>
+</form>
+</body>
+</html>

@@ -1,0 +1,23 @@
+rule_id: declare_form
+name: 企业申报表
+version: 1.0.0
+form_type: declare
+description: 适配申报编号、单位信息、联系人、金额与附件等常见申报字段
+match: {form_selector: "form#declareForm", marker: 'data-form-type="declare"'}
+fields:
+  declare_no: {label: 申报编号, selector: 'input[name="declare_no"]', attr: value, type: text, required: true, validators: [{type: regex, pattern: '^SB-\d{4}-\d{4}$', message: 申报编号应为 SB-年份-四位序号}]}
+  applicant: {label: 申报单位, selector: '#declareForm .applicant', type: text, required: true, validators: [{type: min_length, value: 2, message: 申报单位名称至少 2 个字符}, {type: max_length, value: 60, message: 申报单位名称不得超过 60 个字符}]}
+  credit_code: {label: 统一社会信用代码, selector: 'input[name="credit_code"]', attr: value, type: text, required: true, validators: [{type: credit_code, message: 统一社会信用代码格式不正确}]}
+  category: {label: 申报类别, selector: 'select[name="category"]', type: enum, required: true, validators: [{type: enum, values: [税收优惠, 财政补贴, 项目扶持, 人才奖励], message: 申报类别不在允许范围内}]}
+  contact_name: {label: 联系人, selector: 'input[name="contact_name"]', attr: value, type: text, required: true}
+  contact_phone: {label: 联系电话, selector: 'input[name="contact_phone"]', attr: value, type: text, required: true, validators: [{type: phone, message: 联系电话格式不正确}]}
+  apply_date: {label: 申报日期, selector: 'input[name="apply_date"]', attr: value, type: date, required: true}
+  project_name: {label: 项目名称, selector: '#declareForm .project-name', type: text, required: true}
+  amount: {label: 申报金额, selector: '#declareForm .amount', type: number, required: true, validators: [{type: range, min: 0, max: 100000000, message: 申报金额必须为非负数且不超过一亿元}]}
+  is_urgent: {label: 是否加急, selector: 'input[name="is_urgent"]', attr: value, type: boolean, default: false}
+  invoice_needed: {label: 是否需要发票, selector: 'input[name="invoice_needed"]:checked', attr: value, type: boolean, default: false}
+  scope: {label: 申报范围, selector: 'textarea[name="scope"]', type: text, trim: true, validators: [{type: max_length, value: 500, message: 申报范围不得超过 500 个字符}]}
+  attachments: {label: 附件列表, selector: 'input[name="attachments"]:checked', attr: value, type: array, item_type: text, all: true, default: []}
+  contact: {label: 联系信息, selector: '#declareForm .contact-box', type: object, fields: {department: {label: 部门, selector: .dept, type: text, required: true}, email: {label: 邮箱, selector: .email, attr: data-email, type: text, validators: [{type: email, message: 联系邮箱格式不正确}]}}}
+dedup: {primary_key: [declare_no], fuzzy_fields: [applicant, project_name], threshold: 0.97}
+validations: [{type: compare, left: amount, op: '>', right: 0, level: info, message: 申报金额为零时建议人工复核}]

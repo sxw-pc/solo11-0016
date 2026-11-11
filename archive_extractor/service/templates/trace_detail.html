@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}溯源详情 #{{ chain.result.id }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('results_page', task_id=chain.result.task_id) }}">← 返回结果列表</a></p>
+<h1>溯源详情 #{{ chain.result.id }}</h1>
+<div class="card">
+  <dl class="kv">
+    <dt>任务</dt><dd>#{{ chain.result.task_id }} {{ chain.result.task_name }}</dd>
+    <dt>原始文件</dt><dd>{{ chain.result.source_rel_path }}</dd>
+    <dt>文件 MD5</dt><dd>{{ chain.result.source_md5 }}</dd>
+    <dt>表单类型 / 规则</dt><dd>{{ chain.result.form_type }} / {{ chain.result.rule_id }}</dd>
+    <dt>规则版本</dt><dd>{{ chain.result.rule_version }}</dd>
+    <dt>结果版本</dt><dd>v{{ chain.result.version }}</dd>
+    <dt>状态 / 校验等级</dt>
+    <dd><span class="tag status-{{ chain.result.status }}">{{ chain.result.status }}</span>
+      {% if chain.result.error_level %}<span class="level-{{ chain.result.error_level }}">{{ chain.result.error_level }}</span>{% endif %}
+      {% if chain.result.is_deleted %}<span class="tag level-error">已逻辑删除：{{ chain.result.deleted_reason }}</span>{% endif %}
+    </dd>
+    <dt>提取时间</dt><dd>{{ chain.result.created_at }}</dd>
+    <dt>快照</dt>
+    <dd>{% if chain.snapshot %}<a class="button small" target="_blank" href="{{ url_for('snapshot_preview', result_id=chain.result.id) }}">打开原始快照</a>{% else %}<span class="muted">无快照</span>{% endif %}</dd>
+  </dl>
+</div>
+<div class="split">
+  <div class="card"><h2>结构化数据</h2><pre>{{ data_pretty }}</pre></div>
+  <div class="card">
+    <h2>校验记录（{{ chain.validations|length }}）</h2>
+    {% if chain.validations %}
+    <table>
+      <thead><tr><th>等级</th><th>字段</th><th>原因</th></tr></thead>
+      <tbody>{% for item in chain.validations %}<tr>
+        <td class="level-{{ item.level }}">{{ item.level }}</td><td>{{ item.field }}</td><td>{{ item.message }}</td>
+      </tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<p class="muted">无校验问题。</p>{% endif %}
+  </div>
+</div>
+<div class="card">
+  <h2>字段溯源（{{ chain.traces|length }}）</h2>
+  {% if chain.traces %}
+  <table>
+    <thead><tr><th>字段</th><th>方式</th><th>选择器</th><th>行号</th><th>原始值</th><th>规则版本</th><th>提取时间</th></tr></thead>
+    <tbody>{% for trace in chain.traces %}<tr>
+      <td>{{ trace.field }}</td><td>{{ trace.selector_type }}</td><td><code>{{ trace.selector }}</code></td>
+      <td><a href="{{ url_for('snapshot_preview', result_id=chain.result.id) }}#L{{ trace.source_line }}" target="_blank">{{ trace.source_line }}</a></td>
+      <td>{{ trace.raw_value }}</td><td class="muted">{{ trace.rule_version }}</td><td class="muted">{{ trace.extracted_at }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">未记录字段级溯源。</p>{% endif %}
+</div>
+<div class="card">
+  <h2>历史版本</h2>
+  {% if chain.history|length > 1 %}
+  <table>
+    <thead><tr><th>结果ID</th><th>版本</th><th>文件MD5</th><th>状态</th><th>提取时间</th><th>操作</th></tr></thead>
+    <tbody>{% for item in chain.history %}<tr>
+      <td>{{ item.id }}</td><td>v{{ item.version }}</td><td>{{ item.source_md5 }}</td><td>{{ item.status }}</td>
+      <td>{{ item.created_at }}</td><td><a href="{{ url_for('result_detail', result_id=item.id) }}">查看</a></td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">当前文件只有一个结果版本。</p>{% endif %}
+</div>
+{% if chain.snapshot %}
+<div class="card">
+  <h2>原始文件快照预览</h2>
+  <p class="muted">快照为提取时的不可变副本，原文件后续修改或删除不影响此处内容。</p>
+  <iframe class="snapshot" title="原始快照" src="{{ url_for('snapshot_preview', result_id=chain.result.id) }}"></iframe>
+</div>
+{% endif %}
+{% endblock %}

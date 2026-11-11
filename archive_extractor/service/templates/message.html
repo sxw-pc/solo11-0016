@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a class="button" href="{{ url_for('tasks_page') }}">返回任务列表</a>
+</div>
+{% endblock %}

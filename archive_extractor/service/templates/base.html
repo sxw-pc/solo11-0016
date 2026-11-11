@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}档采匠{% endblock %} · 本地归档采集</title>
+  <style>
+    :root{--ink:#22313f;--muted:#66788a;--line:#dfe6ec;--paper:#f4f1ea;--card:#fffefa;--brand:#315b6e;--brand-dark:#203f4e;--accent:#b76b3d;--ok:#2e7d5b;--warn:#9a6b12;--bad:#a33b3b;--info:#315b6e}
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--ink);background:var(--paper);font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;line-height:1.6}
+    a{color:var(--brand);text-decoration:none}a:hover{text-decoration:underline}
+    header{background:linear-gradient(105deg,var(--brand-dark),var(--brand));color:#fff;border-bottom:3px solid var(--accent)}
+    .nav{max-width:1180px;margin:0 auto;padding:18px 24px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+    .brand{font-size:22px;font-weight:700;letter-spacing:2px}.brand small{font-size:12px;font-weight:400;opacity:.75;margin-left:8px}
+    .nav a{color:#eaf3f6;font-size:14px}.nav .spacer{flex:1}
+    main{max-width:1180px;margin:24px auto 48px;padding:0 24px}h1{font-size:24px;margin:0 0 16px}h2{font-size:18px;margin:0 0 12px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px;margin-bottom:20px;box-shadow:0 2px 8px rgba(35,55,70,.05)}
+    .muted{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+    .stat{border-left:3px solid var(--brand);padding:8px 14px;background:#f7f8f4}.stat b{display:block;font-size:24px}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{background:#eef2f1;font-weight:600;white-space:nowrap}tr:hover td{background:#fbfaf5}form.inline{display:inline}
+    button,.button{display:inline-block;border:0;border-radius:4px;padding:7px 12px;background:var(--brand);color:#fff;cursor:pointer;font-size:13px}
+    button:hover,.button:hover{background:var(--brand-dark);text-decoration:none}button.ghost{background:#e7ecec;color:var(--ink)}button.danger{background:var(--bad)}button.small{padding:4px 8px;font-size:12px}
+    input,select,textarea{border:1px solid #c8d3da;border-radius:4px;padding:7px 9px;font:inherit;background:#fff;color:var(--ink)}
+    .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}.field input,.field select{min-width:150px}
+    .flash{padding:10px 14px;border-radius:5px;margin-bottom:14px;font-size:14px}.flash.info{background:#e6f1ee;color:var(--ok)}.flash.error{background:#f8e8e6;color:var(--bad)}
+    .tag{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;border:1px solid currentColor}
+    .level-error,.status-failed{color:var(--bad)}.level-warning{color:var(--warn)}.level-info{color:var(--info)}.status-completed,.status-valid{color:var(--ok)}.status-running{color:var(--accent)}.status-paused{color:var(--warn)}
+    .progress{height:6px;background:#e3e9e8;border-radius:4px;overflow:hidden;min-width:90px}.progress span{display:block;height:100%;background:var(--brand)}
+    .pager{display:flex;gap:10px;margin-top:14px;align-items:center;font-size:13px}
+    pre{background:#1f2d33;color:#e7efe9;padding:14px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.45}
+    .split{display:grid;grid-template-columns:1.2fr 1fr;gap:20px}.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 14px;font-size:13px}
+    .kv dt{color:var(--muted)}.kv dd{margin:0;word-break:break-all}iframe.snapshot{width:100%;height:520px;border:1px solid var(--line);border-radius:6px;background:#fff}
+    footer{max-width:1180px;margin:30px auto;padding:0 24px 30px;color:var(--muted);font-size:12px}
+    @media(max-width:760px){.split{grid-template-columns:1fr}table{display:block;overflow-x:auto}.nav{padding:14px}}
+  </style>
+</head>
+<body>
+  <header><nav class="nav">
+    <div class="brand">档采匠 <small>静态 HTML 表单采集 · 纯本地</small></div>
+    <a href="{{ url_for('tasks_page') }}">任务管理</a><a href="{{ url_for('results_page') }}">提取结果</a>
+    <span class="spacer"></span><span class="muted" style="color:#c9dce2">离线模式 · 127.0.0.1</span>
+  </nav></header>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}
+    <div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>档采匠 1.0.0 · 仅处理本地已获授权的归档文件 · 结果须人工复核</footer>
+</body>
+</html>
