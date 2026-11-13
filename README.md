@@ -257,9 +257,25 @@ python -m archive_extractor.cli [--data-dir DIR] [--timeout 秒] 子命令 ...
 | `dedup ID` | 查看去重报告 | `python -m archive_extractor.cli dedup 1` |
 | `demo` | 跑通内置 mock 全流程 | `python -m archive_extractor.cli demo --fresh` |
 | `service` | 启动本地管理界面 | `python -m archive_extractor.cli service --port 5001` |
+| `rule-diff DIR OLD NEW` | 双版本规则隔离试跑与字段级差异比对 | `python -m archive_extractor.cli rule-diff ./archive ./rules/v1 ./rules/v2 -o diff.json` |
 | `clean-demo` | 清理演示数据库、快照与导出 | `python -m archive_extractor.cli clean-demo` |
 
 `run` 的 `--limit N` 可用于分批处理或断点续跑；`--timeout` 控制单文件超时，默认 10 秒。`export --format` 可选 `xlsx`、`csv`、`json`、`all`。
+
+### 规则试跑与差异比对（rule-diff）
+
+修改 YAML 规则前，用 `rule-diff` 在**不触碰正式数据**的前提下评估影响面：
+
+```bash
+python -m archive_extractor.cli rule-diff <扫描根目录> <旧规则> <新规则> \
+    --output diff.json [--concurrency 2] [--limit N] [--staging-dir 临时目录]
+```
+
+- `旧规则` / `新规则` 既可以是规则目录，也可以是单个 `.yaml` 规则文件；单文件走与目录加载相同的校验和版本签名算法（`业务版本+内容摘要前 8 位`），历史规则文件缺少可选字段时自动补默认值。
+- 两套规则对**同一批** HTML 各跑一遍；扫描后先比对文件清单与 MD5，输入不一致会直接拒绝并说明差异，避免把源文件变化误判为规则变化。
+- 报告按字段粒度列出 `field_added`（新增）、`field_removed`（消失）、`value_changed`（值变化）、`level_changed`（校验等级变化），每条差异标注变化根源：`selector`（选择器/匹配调整）、`transform`（转换/预处理调整）、`validation`（校验阈值/等级调整），并给出受影响源文件清单及各自 MD5。
+- 试跑在独立临时 SQLite 库与独立快照目录中进行，**不写入主库 results / validations / traces / dedup_reports / rules_versions，也不写入正式快照目录**；命令结束（含失败、SIGINT/SIGTERM 中断）自动清理临时目录，进程被强杀的残留会在下次试跑启动时自动清扫。报告内置 `isolation_check`，记录主库八张表试跑前后行数与快照目录清单的比对结果。
+
 
 ## 8. 本地管理服务使用指南
 

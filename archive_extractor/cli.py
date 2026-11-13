@@ -14,6 +14,7 @@ from archive_extractor.core.scanner import DirectoryScanner
 from archive_extractor.core.task_runner import TaskRunner
 from archive_extractor.core.tracer import Tracer
 from archive_extractor.cli_extras import register_extra_commands
+from archive_extractor.cli_rule_diff import register_rule_diff_command
 from archive_extractor.demo import print_demo, run_demo
 from archive_extractor.storage.file_store import FileStore
 from archive_extractor.storage.sqlite_client import SQLiteClient
@@ -194,6 +195,7 @@ def service_command(ctx, port):
 
 
 register_extra_commands(main)
+register_rule_diff_command(main)
 
 if __name__ == "__main__":
     main()
