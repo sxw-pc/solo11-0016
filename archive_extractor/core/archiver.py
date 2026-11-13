@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 
 from archive_extractor.utils.common import utc_now
 from archive_extractor.utils.hash import file_sha256
+from archive_extractor.core.failures import collect_isolated, summarize
 
 META_COLUMNS = [
     ("result_id", "结果ID"),
@@ -80,11 +81,15 @@ class Archiver:
             (task_id,),
         )
 
-    def _stats(self, task_id: int, records: list[dict]) -> dict:
+    def _stats(self, task_id: int, records: list[dict], failure_summary=None) -> dict:
         task = self.db.get_task(task_id) or {}
         levels = {"error": 0, "warning": 0, "info": 0}
         for row in self._errors(task_id):
             levels[row["level"]] = levels.get(row["level"], 0) + 1
+        if failure_summary is None:
+            isolated = collect_isolated(self.db, task_id)
+            failure_summary = summarize(isolated, task.get("total_files") or 0)
+        failed = int(task.get("failed_count") or 0)
         return {
             "task_id": task_id,
             "task_name": task.get("name", ""),
@@ -97,6 +102,10 @@ class Archiver:
             "validation_error": levels["error"],
             "validation_warning": levels["warning"],
             "validation_info": levels["info"],
+            "failed_files": failed,
+            "isolated_files": failure_summary["isolated_count"],
+            "isolated_categories": len(failure_summary["categories"]),
+            "failure_scope": failure_summary["assessment"]["scope"],
             "exported_at": utc_now(),
         }
 
@@ -119,21 +128,25 @@ class Archiver:
         records = self._load_records(task_id, filters)
         errors = self._errors(task_id) if options["include_errors"] else []
         traces = self._traces(task_id) if options["include_trace"] else []
-        stats = self._stats(task_id, records)
+        isolated = collect_isolated(self.db, task_id)
+        task = self.db.get_task(task_id) or {}
+        summary = summarize(isolated, task.get("total_files") or 0)
+        stats = self._stats(task_id, records, summary)
         path = self.store.new_export_path(fmt, f"task_{task_id}")
         if fmt == "csv":
             self._write_csv(path, records)
         elif fmt == "json":
-            self._write_json(path, stats, records, errors, traces)
+            self._write_json(path, stats, records, errors, traces, isolated)
         else:
-            self._write_xlsx(path, stats, records, errors, traces)
+            self._write_xlsx(path, stats, records, errors, traces, summary)
         digest = _sha256(path)
         sidecar = path.with_suffix(path.suffix + ".sha256")
         sidecar.write_text(f"{digest}  {path.name}\n", encoding="ascii")
         self.db.add_export(task_id, fmt, str(path), digest)
         return {
             "format": fmt, "path": str(path), "sha256": digest,
-            "sidecar": str(sidecar), "records": len(records), "stats": stats,
+            "sidecar": str(sidecar), "records": len(records),
+            "isolated": len(isolated), "stats": stats,
         }
 
     def _write_csv(self, path: Path, records: list[dict]) -> None:
@@ -146,7 +159,7 @@ class Archiver:
                 row.extend(_cell(record["data"].get(key, "")) for key in fields)
                 writer.writerow(row)
 
-    def _write_json(self, path, stats, records, errors, traces) -> None:
+    def _write_json(self, path, stats, records, errors, traces, isolated) -> None:
         payload = {
             "batch": stats,
             "records": [
@@ -155,12 +168,13 @@ class Archiver:
             ],
             "errors": errors,
             "traces": traces,
+            "isolated": isolated,
         }
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    def _write_xlsx(self, path, stats, records, errors, traces) -> None:
+    def _write_xlsx(self, path, stats, records, errors, traces, summary) -> None:
         workbook = Workbook()
         workbook.remove(workbook.active)
         header_font = Font(bold=True, color="FFFFFF")
@@ -178,6 +192,7 @@ class Archiver:
         self._auto_width(sheet)
         self._sheet_errors(workbook, errors, header_font, fill)
         self._sheet_traces(workbook, traces, header_font, fill)
+        self._sheet_isolated(workbook, summary, header_font, fill)
         workbook.save(path)
 
     @staticmethod
@@ -240,6 +255,25 @@ class Archiver:
             ])
         if not traces:
             sheet.append(["", "", "", "", "", "", "", "未启用溯源导出"])
+        self._auto_width(sheet)
+
+    def _sheet_isolated(self, workbook, summary, font, fill) -> None:
+        """隔离台账按失败原因聚合，不展开逐文件明细，避免台账臃肿。"""
+        sheet = workbook.create_sheet("隔离台账")
+        self._append_header(
+            sheet, ["分类", "原因代码", "原因说明", "数量", "复检状态",
+                    "批量诊断提示"], font, fill,
+        )
+        for item in summary.get("categories", []):
+            statuses = "，".join(
+                f"{key}={value}" for key, value in item["statuses"].items()
+            )
+            sheet.append([
+                item["category_label"], item["reason"], item["reason_label"],
+                item["count"], statuses, item.get("batch_hint", ""),
+            ])
+        if not summary.get("categories"):
+            sheet.append(["", "", "", 0, "", "当前批次没有隔离文件"])
         self._auto_width(sheet)
 
     def export_error_list(self, task_id: int, output: Path | str) -> Path:

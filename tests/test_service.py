@@ -154,3 +154,89 @@ def test_start_twice_guard(app, tmp_path):
     response = client.post(f"/tasks/{task['id']}/start", follow_redirects=True)
     assert "正在执行" in response.get_data(as_text=True)
     app.extensions["running"].discard(task["id"])
+
+
+def test_legacy_task_and_null_md5_result_still_render(db, data_dir, tmp_path):
+    """旧批次库：失败行没有台账、结果缺 MD5 时页面也不能报错。"""
+    task_id = db.create_task("旧批次", str(tmp_path), "", {})
+    db.update_task(task_id, status="completed", total_files=2,
+                   processed_files=2, success_count=1, failed_count=1)
+    file_id = db.execute(
+        """INSERT INTO task_files (task_id, rel_path, abs_path, size, md5,
+           status, error, updated_at) VALUES (?, ?, ?, 1, ?, 'failed', ?, ?)""",
+        (task_id, "bad.html", str(tmp_path / "bad.html"), "a" * 32,
+         "文件编码无法识别", "2026-01-01"),
+    )
+    db.execute(
+        """INSERT INTO results (task_id, file_id, data_json, status,
+           source_rel_path, source_md5, version, created_at, updated_at)
+           VALUES (?, ?, '{}', 'valid', 'ok.html', NULL, 1, 'x', 'x')""",
+        (task_id, file_id),
+    )
+    application = create_app(
+        db_path=data_dir / "archive.db", data_dir=data_dir / "files"
+    )
+    application.config["TESTING"] = True
+    client = application.test_client()
+    assert client.get("/tasks").status_code == 200
+    assert client.get("/results").status_code == 200
+    page = client.get(f"/tasks/{task_id}/failures")
+    assert page.status_code == 200
+    text = page.get_data(as_text=True)
+    assert "编码类" in text and "bad.html" in text
+    application.extensions["db"].close()
+
+
+def test_failure_ledger_page_and_recheck(app, tmp_path):
+    root = tmp_path / "archive"
+    root.mkdir()
+    broken = root / "broken.html"
+    broken.write_bytes(b"\xff\xff\x80\x81")
+    normal = (MOCK / "2023企业申报归档/normal/declare_004.html").read_text(
+        encoding="utf-8"
+    )
+    (root / "ok.html").write_text(normal, encoding="utf-8")
+    client = app.test_client()
+    client.post("/tasks", data={
+        "name": "隔离台账", "root_dir": str(root),
+        "rules_dir": str(DEFAULT_RULE_DIR), "concurrency": "1",
+    }, follow_redirects=True)
+    task = app.extensions["db"].list_tasks(1)[0]
+    client.post(f"/tasks/{task['id']}/start", follow_redirects=True)
+    for _ in range(100):
+        task = app.extensions["db"].get_task(task["id"])
+        if task["status"] not in {"running", "pending"}:
+            break
+        time.sleep(0.05)
+    assert task["status"] == "completed" and task["failed_count"] == 1
+
+    page = client.get(f"/tasks/{task['id']}/failures")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "隔离台账" in text and "编码类" in text and "broken.html" in text
+    assert client.get("/tasks/9999/failures").status_code == 404
+
+    task_list = client.get("/tasks").get_data(as_text=True)
+    assert "隔离台账" in task_list
+
+    before = app.extensions["db"].count_results(
+        {"task_id": task["id"]}, include_deleted=True
+    )
+    response = client.post(
+        f"/tasks/{task['id']}/recheck", follow_redirects=True
+    )
+    assert "只读复检完成" in response.get_data(as_text=True)
+    after = app.extensions["db"].count_results(
+        {"task_id": task["id"]}, include_deleted=True
+    )
+    assert before == after
+
+    broken.write_text(normal.replace("SB-2023-0004", "SB-2023-0999"),
+                      encoding="utf-8")
+    response = client.post(
+        f"/tasks/{task['id']}/recheck", follow_redirects=True
+    )
+    assert "可解析 1 个" in response.get_data(as_text=True)
+    assert app.extensions["db"].count_results(
+        {"task_id": task["id"]}, include_deleted=True
+    ) == before

@@ -58,8 +58,9 @@ def test_export_csv_json_excel(seeded, archiver, db):
     xlsx_result = archiver.export(task_id, "xlsx")
     workbook = load_workbook(xlsx_result["path"])
     assert workbook.sheetnames == [
-        "批次信息", "提取统计", "结果明细", "错误记录", "溯源索引"
+        "批次信息", "提取统计", "结果明细", "错误记录", "溯源索引", "隔离台账"
     ]
+    assert "当前批次没有隔离文件" in workbook["隔离台账"]["F2"].value
     assert workbook["结果明细"].max_row == 3
     assert workbook["溯源索引"].max_row == 2
     workbook.close()
@@ -79,6 +80,7 @@ def test_export_options_and_filters(seeded, archiver, db):
     payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
     assert result["records"] == 1
     assert payload["errors"] == [] and payload["traces"] == []
+    assert payload["isolated"] == []
     xlsx = archiver.export(
         task_id, "xlsx",
         options={"include_trace": False, "include_errors": False},

@@ -18,11 +18,28 @@ class RuleError(ArchiveError):
 
 
 class EncodingError(ArchiveError):
-    """文件编码无法识别。"""
+    """文件编码无法识别或读取失败。
+
+    reason 为稳定的失败原因代码，供隔离台账归类；message 仍用于日志与界面。
+    """
+
+    def __init__(self, message: str, reason: str = "decode_failed") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class ParseError(ArchiveError):
-    """HTML 结构无法解析或未匹配规则。"""
+    """HTML 结构无法解析或未匹配规则。
+
+    reason/stage 为稳定的失败原因代码与阶段，供隔离台账归类。
+    """
+
+    def __init__(
+        self, message: str, reason: str = "malformed_html", stage: str = "parse"
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.stage = stage
 
 
 def utc_now() -> str:

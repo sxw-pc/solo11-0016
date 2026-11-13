@@ -3,30 +3,26 @@ from __future__ import annotations
 
 import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 from archive_extractor.config.loader import load_rules, rule_version_payload
 from archive_extractor.core.deduplicator import Deduplicator
-from archive_extractor.core.encoder import read_html
+from archive_extractor.core.failures import build_failure
+from archive_extractor.core.file_processor import FileProcessorMixin
 from archive_extractor.core.parser import FormExtractor
 from archive_extractor.core.scanner import DirectoryScanner
 from archive_extractor.core.tracer import Tracer
-from archive_extractor.core.validator import (
-    ValidationIssue,
-    highest_level,
-    issues_to_dicts,
-    validate_data,
-)
 from archive_extractor.storage.file_store import FileStore
 from archive_extractor.utils.common import utc_now
+from archive_extractor.core.review_mixin import ReviewMixin
 from archive_extractor.utils.logger import get_logger
 
 LOGGER = get_logger("archive_extractor.task")
 
 
-class TaskRunner:
+class TaskRunner(FileProcessorMixin, ReviewMixin):
     """执行采集任务；所有异常在单文件粒度和任务粒度双重隔离。"""
 
     def __init__(
@@ -76,9 +72,18 @@ class TaskRunner:
             min_size=scan_cfg.get("min_size", 0),
             max_size=scan_cfg.get("max_size"),
         )
-        items = scanner.scan()
+        items, scan_failures = scanner.scan_with_failures()
         current_paths = {item.rel_path for item in items}
         self.db.mark_removed(task_id, current_paths)
+        # 扫描失败的文件仍存在于磁盘，不能按“已消失”清理其台账。
+        present = current_paths | {item["rel_path"] for item in scan_failures}
+        self.db.clear_failures_except(task_id, present)
+        for failure in scan_failures:
+            self.db.record_failure(
+                task_id, failure["rel_path"],
+                build_failure(failure["reason"], failure["message"]),
+                source="task",
+            )
         new, changed, new_items = 0, 0, []
         for item in items:
             existing = self.db.get_task_file(task_id, item.rel_path)
@@ -179,83 +184,6 @@ class TaskRunner:
                 for row in batch
             ]
             return [future.result() for future in futures]
-
-    def _process_file(self, row, extractor, ruleset, task_id) -> dict:
-        self.db.update_task_file(row["id"], status="processing")
-        try:
-            extracted = self._extract_with_timeout(row, extractor, ruleset)
-            rule = ruleset.get(extracted["rule_id"])
-            issues = validate_data(rule, extracted["data"])
-            for error in extracted.get("errors", []):
-                issues.append(
-                    ValidationIssue(
-                        "error", error["field"], error["message"], "conversion"
-                    )
-                )
-            level = highest_level(issues)
-            status = "invalid" if level == "error" else (
-                "warning" if level == "warning" else "valid"
-            )
-            with self._persist_lock:
-                snapshot = self.tracer.make_snapshot(
-                    row["abs_path"], row["md5"], Path(row["rel_path"]).name
-                )
-                version = self.db.next_result_version(task_id, row["rel_path"])
-                if version > 1:
-                    self.db.execute(
-                        """UPDATE results SET status = 'superseded',
-                           is_deleted = 1, deleted_reason = 'new_version',
-                           updated_at = ? WHERE task_id = ?
-                           AND source_rel_path = ? AND is_deleted = 0""",
-                        (utc_now(), task_id, row["rel_path"]),
-                    )
-                    self.deduplicator.begin(task_id)
-                result_id = self.db.store_result({
-                    "task_id": task_id, "file_id": row["id"],
-                    "form_type": extracted["form_type"],
-                    "rule_id": extracted["rule_id"],
-                    "rule_version": extracted["rule_version"],
-                    "rule_content_hash": extracted["rule_content_hash"],
-                    "data": extracted["data"], "status": status,
-                    "error_level": level, "source_rel_path": row["rel_path"],
-                    "source_md5": row["md5"], "source_mtime": row["mtime"],
-                    "snapshot_path": snapshot, "version": version,
-                })
-                self.db.add_validations(result_id, issues_to_dicts(issues))
-                self.tracer.record(
-                    result_id, extracted["traces"], row["md5"],
-                    extracted["rule_version"],
-                )
-                if status in {"valid", "warning"}:
-                    self.deduplicator.apply(
-                        task_id, result_id, extracted["data"], row["mtime"],
-                        rule.get("dedup", {}),
-                    )
-            self.db.update_task_file(
-                row["id"], status="success", error=None, result_id=result_id
-            )
-            return {"file": row["rel_path"], "status": "success"}
-        except (FutureTimeout, TimeoutError):
-            return self._fail(row, f"处理超时（{self.timeout:g} 秒）")
-        except Exception as exc:
-            LOGGER.warning("文件处理失败 %s: %s", row["rel_path"], exc)
-            return self._fail(row, str(exc))
-
-    def _extract_with_timeout(self, row, extractor, ruleset) -> dict:
-        def work():
-            text, _ = read_html(row["abs_path"])
-            return extractor.extract(text, row["rel_path"])
-
-        pool = ThreadPoolExecutor(max_workers=1)
-        future = pool.submit(work)
-        try:
-            return future.result(timeout=self.timeout)
-        finally:
-            pool.shutdown(wait=False)
-
-    def _fail(self, row, message: str) -> dict:
-        self.db.update_task_file(row["id"], status="failed", error=message[:800])
-        return {"file": row["rel_path"], "status": "failed", "error": message}
 
     def _finish(self, task_id: int) -> None:
         task = self._task(task_id)

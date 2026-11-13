@@ -1,6 +1,6 @@
 # 档采匠（Archive Extractor）
 
-**版本：1.0.0** · 纯本地、离线、配置驱动的静态 HTML 表单批量采集与归档工具
+**版本：1.1.0** · 纯本地、离线、配置驱动的静态 HTML 表单批量采集与归档工具
 
 ## 1. 项目定位
 
@@ -15,7 +15,8 @@
 - **合规校验**：必填、格式、范围、枚举、跨字段逻辑校验，按错误/警告/提示分级。
 - **精确与模糊去重**：逻辑删除、保留最新、可恢复、可出报告。
 - **任务化处理**：并发、超时、失败隔离、断点续跑、增量重跑、历史版本保留。
-- **本地台账**：CSV、JSON、Excel（五个 Sheet），自动生成 SHA256 校验文件。
+- **失败质量复检**：失败按编码/结构/规则匹配/处理/扫描分类落账，同类批量失败可一眼区分“规则整批不适配”与“个别文件损坏”；支持对隔离文件做只读复检，不重新入库、不去重、不产生重复结果。
+- **本地台账**：CSV、JSON、Excel（含隔离台账 Sheet），自动生成 SHA256 校验文件。
 
 ### 适用场景
 
@@ -149,7 +150,7 @@ python -m archive_extractor.cli service --port 5001
 | 去重报告 | 10 |
 | 非 HTML 附件 | 2（不进入解析队列） |
 
-Excel 台账固定包含「批次信息、提取统计、结果明细、错误记录、溯源索引」五个 Sheet；CSV、JSON 也同时生成 `.sha256` 校验文件。数据分布与逐项预期见 [`docs/mock_data.md`](docs/mock_data.md)。
+Excel 台账固定包含「批次信息、提取统计、结果明细、错误记录、溯源索引、隔离台账」六个 Sheet；CSV、JSON 也同时生成 `.sha256` 校验文件，JSON 另含 `isolated` 隔离明细。数据分布与逐项预期见 [`docs/mock_data.md`](docs/mock_data.md)。
 
 ## 5. 核心概念
 
@@ -158,6 +159,22 @@ Excel 台账固定包含「批次信息、提取统计、结果明细、错误�
 - **溯源链（Trace Chain）**：结果、字段级溯源、校验记录、快照、同文件历史版本的集合。每个字段记录源文件相对路径、MD5、行号、选择器、选择器类型、原始值、规则版本、提取时间。
 - **去重策略**：先用 `primary_key` 做精确匹配；未命中时按 `fuzzy_fields` 计算编辑距离相似度，并取各字段相似度的最小值。达到阈值即判重。默认保留源文件修改时间较新的记录，另一条逻辑删除并写入 `dedup_reports`。
 - **错误等级**：`error` 阻断为无效结果；`warning` 允许入库但标记；`info` 仅记录。字段类型转换失败按 `error` 处理。整体状态取最高等级。
+
+### 失败隔离与只读复检
+
+单个文件失败不再只留下一个失败计数，而是按固定原因代码落账到隔离台账：
+
+| 分类 | 典型原因 | 说明 |
+|------|----------|------|
+| 编码类 `encoding` | `decode_failed` | 读取成功但编码无法识别 |
+| 结构类 `structure` | `missing_form_marker`、`malformed_html`、`empty_content` | 缺 form 标记、HTML 残缺或为空 |
+| 规则匹配类 `rule` | `rule_unmatched` | 页面有 form 结构，但所有规则的选择器/标记都不命中 |
+| 处理类 `processing` | `timeout`、`unexpected_error` | 超时或未预期异常 |
+| 扫描类 `scan` | `file_unreadable`、`file_too_large`、`stat_failed` | 扫描/读取阶段失败 |
+
+原因代码与文案解耦，日志措辞变化不会让分类漂移。台账同时给出**批次判断**：同类失败达到一定数量且占比明显时提示「规则整批不适配」或「导出整体异常」，少量文件则提示按单文件复核。
+
+`recheck` 只做「读取 → 解析 → 归类」：不写结果、不建快照、不触发去重、不改 `task_files` 状态，因此不会产生重复结果；同一文件多次复检只更新原有台账行（`recheck_count` 递增），记录条数保持稳定。复检可解析（`recovered`）也仅代表可通过，需人工决定是否重跑任务才会真正入库。
 
 ## 6. 自定义规则开发指南
 
@@ -253,6 +270,8 @@ python -m archive_extractor.cli [--data-dir DIR] [--timeout 秒] 子命令 ...
 | `export ID` | 导出台账 | `python -m archive_extractor.cli export 1 --format all` |
 | `trace RESULT_ID` | 查看完整溯源链 JSON | `python -m archive_extractor.cli trace 1` |
 | `task-action ID ACTION` | 暂停/继续/取消/重试/删除 | `python -m archive_extractor.cli task-action 1 retry` |
+| `failures ID` | 查看隔离台账（按失败原因分类） | `python -m archive_extractor.cli failures 1` |
+| `recheck ID` | 只读复检隔离文件（不入库/不去重） | `python -m archive_extractor.cli recheck 1` |
 | `errors ID OUT.csv` | 导出错误清单 | `python -m archive_extractor.cli errors 1 errors.csv` |
 | `dedup ID` | 查看去重报告 | `python -m archive_extractor.cli dedup 1` |
 | `demo` | 跑通内置 mock 全流程 | `python -m archive_extractor.cli demo --fresh` |
@@ -269,6 +288,7 @@ python -m archive_extractor.cli service --port 5001
 
 - 访问地址：`http://127.0.0.1:5001/`。
 - 任务管理：创建任务（扫描目录、规则目录、并发数、超时），启动、暂停、继续、取消、重试、删除。
+- 隔离台账：任务列表可进入「隔离台账」，按失败原因分类查看，并一键执行只读复检。
 - 结果查询：关键词、表单类型、错误等级、任务筛选，分页查看。
 - 详情与溯源：字段数据、校验记录、历史版本、快照预览。
 - 导出：CSV / JSON / XLSX 台账、错误清单；去重记录可恢复。
@@ -304,7 +324,7 @@ SQLite 使用 WAL、`synchronous=NORMAL`、外键约束和常用索引。同一�
 
 ### 版本日志
 
-当前版本 **1.0.0**：完成 F1–F8 全部功能、三类默认规则、80 个合成 mock 文件、离线 CLI/Flask 界面、五 Sheet Excel 台账、SHA256 校验、75 个测试用例与性能基线。详见 [`CHANGELOG.md`](CHANGELOG.md)。
+当前版本 **1.1.0**：在 1.0.0 基础上新增失败原因分类台账、批次级诊断与只读复检，测试用例增至 91 个。详见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ### 贡献指南
 

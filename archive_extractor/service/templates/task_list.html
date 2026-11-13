@@ -34,6 +34,7 @@
           {% if task.status in ['failed', 'completed'] %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='retry') }}"><button class="small ghost" type="submit">重试失败</button></form>{% endif %}
           {% if task.status != 'running' %}<form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='delete') }}"><button class="small danger" type="submit">删除</button></form>{% endif %}
           <div style="margin-top:5px">
+            <a class="button small ghost" href="{{ url_for('failures_page', task_id=task.id) }}">隔离台账{% if task.failed_count %}（{{ task.failed_count }}）{% endif %}</a>
             <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='xlsx') }}">Excel</a>
             <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='csv') }}">CSV</a>
             <a class="button small" href="{{ url_for('export_file', task_id=task.id, fmt='json') }}">JSON</a>

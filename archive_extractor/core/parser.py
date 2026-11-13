@@ -88,7 +88,11 @@ class FormExtractor:
         self.ruleset = ruleset
 
     def match_rule(self, soup: BeautifulSoup, raw_text: str) -> dict:
-        """按表单选择器或标记匹配规则。"""
+        """按表单选择器或标记匹配规则。
+
+        失败时按可观察证据分类：整页没有 form 结构归结构类，存在 form 但规则
+        全部不命中则归规则匹配类，便于区分“模板损坏”与“规则不适配”。
+        """
         for rule in self.ruleset.all():
             match = rule["match"]
             selector = match.get("form_selector")
@@ -99,18 +103,34 @@ class FormExtractor:
                 hit = False
             if hit or (marker and marker in raw_text):
                 return rule
-        raise ParseError("未匹配到任何已配置的表单规则")
+        if not soup.find("form"):
+            raise ParseError(
+                "缺少表单标记：未找到 form 结构", reason="missing_form_marker",
+                stage="match",
+            )
+        raise ParseError(
+            "未匹配到任何已配置的表单规则", reason="rule_unmatched", stage="match"
+        )
 
     def extract(self, raw_text: str, source_hint: str = "") -> dict:
         """执行完整提取，返回数据、追踪项与非致命字段错误。"""
         if not raw_text.strip():
-            raise ParseError("HTML 内容为空")
+            raise ParseError("HTML 内容为空", reason="empty_content", stage="parse")
         try:
             soup = BeautifulSoup(raw_text, "lxml")
             tree = lxml_html.fromstring(raw_text)
         except Exception as exc:
-            raise ParseError(f"HTML 解析失败: {exc}") from exc
-        rule = self.match_rule(soup, raw_text)
+            raise ParseError(
+                f"HTML 解析失败: {exc}", reason="malformed_html", stage="parse"
+            ) from exc
+        try:
+            rule = self.match_rule(soup, raw_text)
+        except ParseError:
+            raise
+        except Exception as exc:
+            raise ParseError(
+                f"HTML 解析失败: {exc}", reason="malformed_html", stage="parse"
+            ) from exc
         data: dict[str, Any] = {}
         traces: list[dict] = []
         errors: list[dict] = []

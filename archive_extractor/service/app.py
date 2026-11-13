@@ -22,6 +22,7 @@ from flask import (
 from archive_extractor.config.loader import DEFAULT_RULE_DIR
 from archive_extractor.core.archiver import Archiver
 from archive_extractor.core.deduplicator import Deduplicator
+from archive_extractor.core.failures import collect_isolated, summarize
 from archive_extractor.core.task_runner import TaskRunner
 from archive_extractor.core.tracer import Tracer
 from archive_extractor.storage.file_store import FileStore
@@ -89,6 +90,16 @@ def create_app(
         elif action == "retry":
             count = runner.retry(task_id)
             flash(f"已重置 {count} 个失败文件，点击“继续”重新执行。", "info")
+        elif action == "recheck":
+            try:
+                result = runner.recheck(task_id)
+                flash(
+                    f"只读复检完成：检查 {result['checked']} 个，可解析 "
+                    f"{result['recovered']} 个，仍隔离 {result['still_failed']} 个"
+                    "（未重新入库）。", "info",
+                )
+            except RuntimeError as exc:
+                flash(str(exc), "error")
         elif action == "delete":
             try:
                 runner.delete(task_id)
@@ -97,6 +108,18 @@ def create_app(
         else:
             abort(404)
         return redirect(url_for("tasks_page"))
+
+    @app.route("/tasks/<int:task_id>/failures")
+    def failures_page(task_id: int):
+        task = db.get_task(task_id)
+        if not task:
+            abort(404)
+        records = collect_isolated(db, task_id)
+        summary = summarize(records, task.get("total_files") or 0)
+        return render_template(
+            "failure_list.html", task=task, records=records, summary=summary,
+            rechecks=db.recheck_runs(task_id),
+        )
 
     @app.route("/results")
     def results_page():

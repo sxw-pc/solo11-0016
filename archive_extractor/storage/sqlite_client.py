@@ -9,9 +9,10 @@ from typing import Any, Optional
 
 from archive_extractor.utils.common import ensure_dir, utc_now
 from archive_extractor.storage.db_schema import SCHEMA, TASK_FIELDS
+from archive_extractor.storage.failure_store import FailureStoreMixin
 
 
-class SQLiteClient:
+class SQLiteClient(FailureStoreMixin):
     """线程安全、单文件 SQLite 客户端。"""
 
     def __init__(self, db_path: Path | str) -> None:

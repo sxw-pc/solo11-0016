@@ -62,7 +62,9 @@ def detect_encoding(raw: bytes) -> tuple[str, str]:
             fallback = (text, name, quality)
     if fallback:
         return fallback[0], fallback[1]
-    raise EncodingError("文件编码无法识别，已尝试 UTF-8/GBK/GB2312/Big5")
+    raise EncodingError(
+        "文件编码无法识别，已尝试 UTF-8/GBK/GB2312/Big5", reason="decode_failed"
+    )
 
 
 def read_html(path: PathLike, max_bytes: int | None = None) -> tuple[str, str]:
@@ -71,8 +73,11 @@ def read_html(path: PathLike, max_bytes: int | None = None) -> tuple[str, str]:
     try:
         size = file_path.stat().st_size
         if max_bytes and size > max_bytes:
-            raise EncodingError(f"文件超过大小上限: {size} > {max_bytes}")
+            raise EncodingError(
+                f"文件超过大小上限: {size} > {max_bytes}",
+                reason="file_too_large",
+            )
         raw = file_path.read_bytes()
     except OSError as exc:
-        raise EncodingError(f"文件读取失败: {exc}") from exc
+        raise EncodingError(f"文件读取失败: {exc}", reason="file_unreadable") from exc
     return detect_encoding(raw)

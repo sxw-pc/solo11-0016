@@ -64,6 +64,30 @@ def register_extra_commands(group) -> None:
         report = Deduplicator(ctx.obj["db"]).report(task_id)
         click.echo(json.dumps(report, ensure_ascii=False, indent=2))
 
+    @group.command("failures")
+    @click.argument("task_id", type=int)
+    @click.option("--records/--no-records", default=True, help="是否输出逐文件明细")
+    @click.pass_context
+    def failures_command(ctx, task_id, records):
+        """查看隔离台账：按失败原因分类并给出整批/单文件判断。"""
+        if not ctx.obj["db"].get_task(task_id):
+            raise click.ClickException("任务不存在")
+        payload = _runner(ctx).failures(task_id)
+        if not records:
+            payload.pop("records", None)
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+    @group.command("recheck")
+    @click.argument("task_id", type=int)
+    @click.option("--limit", type=int, default=None, help="本次最多复检文件数")
+    @click.pass_context
+    def recheck_command(ctx, task_id, limit):
+        """只读复检隔离文件：不重新入库、不去重、不新增失败记录。"""
+        if not ctx.obj["db"].get_task(task_id):
+            raise click.ClickException("任务不存在")
+        result = _runner(ctx).recheck(task_id, limit=limit)
+        click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
     @group.command("clean-demo")
     @click.pass_context
     def clean_demo_command(ctx):

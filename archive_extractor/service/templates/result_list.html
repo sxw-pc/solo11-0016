@@ -26,7 +26,7 @@
     {% for row in results %}
       <tr>
         <td><a href="{{ url_for('result_detail', result_id=row.id) }}">#{{ row.id }}</a></td>
-        <td><a href="{{ url_for('result_detail', result_id=row.id) }}">{{ row.source_rel_path }}</a><div class="muted">v{{ row.version }} · {{ row.source_md5[:12] }}…</div></td>
+        <td><a href="{{ url_for('result_detail', result_id=row.id) }}">{{ row.source_rel_path }}</a><div class="muted">v{{ row.version }} · {{ (row.source_md5 or '')[:12] }}{% if row.source_md5 %}…{% endif %}</div></td>
         <td>{{ row.form_type }}</td>
         <td><span class="tag status-{{ row.status }}">{{ row.status }}</span>{% if row.error_level %}<div class="level-{{ row.error_level }}">{{ row.error_level }}</div>{% endif %}</td>
         <td>{{ row.preview }}</td><td class="muted">{{ row.rule_version }}</td><td class="muted">{{ row.created_at }}</td>

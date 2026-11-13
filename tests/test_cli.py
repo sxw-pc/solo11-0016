@@ -11,6 +11,12 @@ from archive_extractor.cli import main
 MOCK = Path(__file__).resolve().parents[1] / "archive_extractor" / "mock_data"
 
 
+def normal_html() -> str:
+    return (MOCK / "2023企业申报归档/normal/declare_005.html").read_text(
+        encoding="utf-8"
+    )
+
+
 def invoke(runner, data_dir, *args):
     return runner.invoke(main, ["--data-dir", str(data_dir), *args])
 
@@ -69,6 +75,33 @@ def test_missing_resource_errors(tmp_path):
     assert invoke(runner, tmp_path, "status", "999").exit_code != 0
     assert invoke(runner, tmp_path, "trace", "999").exit_code != 0
     assert invoke(runner, tmp_path, "export", "999").exit_code != 0
+    assert invoke(runner, tmp_path, "recheck", "999").exit_code != 0
+
+
+def test_failures_and_recheck_commands(tmp_path):
+    root = tmp_path / "archive"
+    root.mkdir()
+    (root / "broken.html").write_bytes(b"\xff\xff\x80\x81")
+    (root / "ok.html").write_text(normal_html(), encoding="utf-8")
+    runner = CliRunner(mix_stderr=False)
+    result = invoke(runner, tmp_path, "run", str(root), "--name", "台账")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    task_id = payload["id"]
+    assert payload["failed_count"] == 1
+    result = invoke(runner, tmp_path, "failures", str(task_id))
+    assert result.exit_code == 0, result.output
+    ledger = json.loads(result.output)
+    assert ledger["summary"]["isolated_count"] == 1
+    assert ledger["records"][0]["category"] == "encoding"
+    result = invoke(runner, tmp_path, "failures", str(task_id), "--no-records")
+    assert "records" not in json.loads(result.output)
+    result = invoke(runner, tmp_path, "recheck", str(task_id))
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["still_failed"] == 1
+    assert len(json.loads(invoke(
+        runner, tmp_path, "failures", str(task_id)
+    ).output)["records"]) == 1
 
 
 def test_demo_and_clean_demo(tmp_path):

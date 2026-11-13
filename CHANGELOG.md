@@ -2,6 +2,24 @@
 
 本项目遵循“主版本.次版本.修订号”的版本号约定。所有变更均保留在本地，不依赖任何外部服务。
 
+## [1.1.0] - 2026-11-13
+
+### 新增
+
+- **失败原因分类台账**：失败文件不直接丢进隔离区，而是按 `encoding`/`structure`/`rule`/`processing`/`scan` 分类落账，原因代码与日志文案解耦，分类稳定不漂移。
+- **结构类与规则类区分**：缺少 `form` 结构归 `missing_form_marker`（结构类），存在 form 但规则选择器全部不命中归 `rule_unmatched`（规则匹配类）。
+- **批次级诊断**：`failures` 汇总给出 `batch_encoding` / `rule_set` / `file` 等判断，同类批量出现时能区分“规则整批不适配”与“个别文件损坏”。
+- **只读复检**：新增 `recheck` 命令与服务端“只读复检”操作，只做读取/解析/归类，不写结果、不建快照、不去重、不改 `task_files` 状态，因此不产生重复结果。
+- **复检幂等**：同一文件多次失败/复检只更新原有台账行（`occurrences`、`recheck_count`），记录条数不随复检增长。
+- **旧库兼容**：`failure_records`/`recheck_runs` 为新增独立表，不修改既有表结构；旧批次的历史失败记录可按 `error` 文本推断原因后正常展示，`legacy=true` 标记来源。
+- 隔离台账 UI（任务列表入口、分类聚合、批次判断、复检历史）与 Excel「隔离台账」Sheet；JSON 导出新增 `isolated` 字段。
+
+### 兼容性说明
+
+- `tasks`、`task_files`、`results`、`validations`、`traces`、`dedup_reports`、`exports` 表结构未变，断点续跑、增量重跑与历史批次展示保持原行为。
+- `task_files.error` 字段继续写入，作为旧界面与旧数据展示的兼容来源。
+- Excel 台账由五个 Sheet 扩展为六个（新增「隔离台账」）。
+
 ## [1.0.0] - 2026-11-11
 
 ### 新增

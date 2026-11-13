@@ -42,6 +42,9 @@ def run_demo(data_dir: Path | str, fresh: bool = True) -> dict:
         task = runner.run(task_id)
         store = FileStore(base / "demo_files")
         archiver = Archiver(db, store)
+        failures = runner.failures(task_id)
+        recheck = runner.recheck(task_id) if failures["records"] else None
+        failures = runner.failures(task_id)
         exports = {
             fmt: archiver.export(
                 task_id, fmt,
@@ -57,6 +60,8 @@ def run_demo(data_dir: Path | str, fresh: bool = True) -> dict:
             "task": task,
             "expected": _expected(),
             "exports": exports,
+            "failures": failures,
+            "recheck": recheck or {},
             "errors": db.query(
                 """SELECT COUNT(*) AS amount FROM validations v JOIN results r
                    ON r.id = v.result_id WHERE r.task_id = ? AND v.level = 'error'""",
@@ -85,6 +90,22 @@ def print_demo(summary: dict) -> None:
         f"/ 成功 {task['success_count']} / 失败 {task['failed_count']}"
     )
     print(f"校验错误: {summary['errors']} 条    去重记录: {summary['dedup']} 条")
+    failures = summary.get("failures", {})
+    if failures.get("records"):
+        groups = failures["summary"]["categories"]
+        text = "；".join(
+            f"{item['category_label']}/{item['reason_label']} {item['count']} 个"
+            for item in groups
+        )
+        print(f"隔离台账: {failures['summary']['isolated_count']} 个文件（{text}）")
+        print(f"批次判断: {failures['summary']['assessment']['hint']}")
+        recheck = summary.get("recheck") or {}
+        if recheck:
+            print(
+                f"只读复检: 检查 {recheck['checked']} 个，可解析 "
+                f"{recheck['recovered']} 个，仍隔离 {recheck['still_failed']} 个"
+                "（未重新入库）"
+            )
     print("-" * 66)
     expected = summary.get("expected", {})
     if expected:

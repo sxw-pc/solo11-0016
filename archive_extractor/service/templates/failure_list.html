@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}隔离台账 · {{ task.name }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('tasks_page') }}">← 返回任务管理</a></p>
+<h1>隔离台账 · #{{ task.id }} {{ task.name }}</h1>
+<div class="card">
+  <h2>批次判断</h2>
+  <div class="grid">
+    <div class="stat"><b>{{ summary.isolated_count }}</b><span class="muted">隔离文件</span></div>
+    <div class="stat"><b>{{ task.failed_count }}</b><span class="muted">任务失败计数</span></div>
+    <div class="stat"><b>{{ summary.categories|length }}</b><span class="muted">失败原因分类</span></div>
+  </div>
+  <p class="muted">{{ summary.assessment.hint }}</p>
+  <p class="muted">登记/复检分离：复检只读，不重新入库、不去重、不新增失败记录。</p>
+  <form class="inline" method="post" action="{{ url_for('task_action', task_id=task.id, action='recheck') }}">
+    <button type="submit">只读复检隔离文件</button>
+  </form>
+</div>
+<div class="card">
+  <h2>按失败原因分类（{{ summary.categories|length }}）</h2>
+  {% if summary.categories %}
+  <table>
+    <thead><tr><th>分类</th><th>原因</th><th>数量</th><th>复检状态</th><th>批量诊断提示</th></tr></thead>
+    <tbody>{% for item in summary.categories %}
+      <tr>
+        <td><span class="tag">{{ item.category_label }}</span></td>
+        <td>{{ item.reason_label }}<div class="muted">{{ item.reason }}</div></td>
+        <td>{{ item.count }}</td>
+        <td>{% for status, count in item.statuses.items() %}<span class="tag">{{ status }} {{ count }}</span> {% endfor %}</td>
+        <td class="muted">{{ item.batch_hint }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">当前任务没有隔离文件。</p>{% endif %}
+</div>
+<div class="card">
+  <h2>隔离文件明细（{{ records|length }}）</h2>
+  {% if records %}
+  <table>
+    <thead><tr><th>文件</th><th>分类 / 原因</th><th>阶段</th><th>失败信息</th><th>次数</th><th>复检</th></tr></thead>
+    <tbody>{% for row in records %}
+      <tr>
+        <td>{{ row.rel_path }}{% if row.legacy %}<div class="muted">历史记录</div>{% endif %}</td>
+        <td><span class="tag">{{ row.category_label }}</span><div class="muted">{{ row.reason }}</div></td>
+        <td>{{ row.stage }}</td>
+        <td>{{ row.message }}<div class="muted">{{ row.batch_hint }}</div></td>
+        <td>{{ row.occurrences }}</td>
+        <td><span class="tag {% if row.recovered %}status-valid{% else %}status-failed{% endif %}">{{ row.recheck_status }}</span>
+          <div class="muted">{{ row.recheck_count }} 次{% if row.last_recheck_at %} · {{ row.last_recheck_at }}{% endif %}</div></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">没有隔离文件。</p>{% endif %}
+</div>
+<div class="card">
+  <h2>复检历史（{{ rechecks|length }}）</h2>
+  {% if rechecks %}
+  <table>
+    <thead><tr><th>时间</th><th>检查</th><th>可解析</th><th>仍隔离</th></tr></thead>
+    <tbody>{% for item in rechecks %}
+      <tr><td>{{ item.created_at }}</td><td>{{ item.checked }}</td><td>{{ item.recovered }}</td><td>{{ item.still_failed }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">尚未执行复检。</p>{% endif %}
+</div>
+{% endblock %}

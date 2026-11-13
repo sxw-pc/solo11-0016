@@ -53,12 +53,30 @@ HTML 合计 **80** 个：
 
 - 任务状态 `completed`。
 - 总文件 80，成功 78，失败 2；失败原因为文件编码/HTML 无法解析，任务不中断。
+- 隔离台账按原因聚合为「编码类 / 文件编码无法识别」2 个文件；只读复检后仍为 2 条记录。
 - 10 条重复记录被逻辑删除，保留较新 `mtime` 的记录，生成 10 条去重报告。
 - 未删除结果中，58 条 `valid`、10 条 `invalid`。
 - 每个成功结果都有快照、字段级溯源与规则版本。
 - 导出 `xlsx`、`csv`、`json` 各一份，并生成同名 `.sha256` 文件。
 
 由于 `demo` 会重建 `data/demo.db`，任务 ID 通常为 1，但以控制台输出为准。
+
+### 隔离台账与只读复检验收
+
+```bash
+# 查看隔离台账（按原因分类 + 批次/单文件判断）
+python -m archive_extractor.cli failures 1
+
+# 只读复检：不重新入库、不去重、不新增失败记录
+python -m archive_extractor.cli recheck 1
+
+# 复检后再次查看：隔离文件仍应只有 2 条，原因仍为 decode_failed
+python -m archive_extractor.cli failures 1
+```
+
+手工验收结构类：把任一正常文件的 `<form ... data-form-type="declare">` 改为
+`<div id="declareForm">` 并同步闭合标签，重新执行任务后其失败原因应为
+`missing_form_marker`（结构类），而不是编码类。
 
 ## 三、异常样本说明
 

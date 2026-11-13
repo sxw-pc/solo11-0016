@@ -88,11 +88,21 @@ class DirectoryScanner:
 
     def scan(self) -> list[ScanItem]:
         """扫描目录。单个文件读取失败时跳过并继续。"""
+        items, _ = self.scan_with_failures()
+        return items
+
+    def scan_with_failures(self) -> tuple[list[ScanItem], list[dict]]:
+        """扫描目录并同时收集扫描阶段失败，供隔离台账分类落账。
+
+        返回 (成功清单, 失败清单)。失败项包含 rel_path、stage、reason 与
+        message；不改变既有 scan() 的返回契约。
+        """
         if not self.root.exists():
             raise FileNotFoundError(f"扫描目录不存在: {self.root}")
         if not self.root.is_dir():
             raise NotADirectoryError(f"扫描路径不是目录: {self.root}")
         items: list[ScanItem] = []
+        failures: list[dict] = []
         for current, dirs, files in os.walk(self.root):
             dirs[:] = sorted(
                 name for name in dirs if not self._excluded_dir(name)
@@ -101,19 +111,31 @@ class DirectoryScanner:
                 path = Path(current) / name
                 if not self._accept(path):
                     continue
+                rel_path = path.relative_to(self.root).as_posix()
                 try:
                     stat = path.stat()
-                    item = ScanItem(
-                        rel_path=path.relative_to(self.root).as_posix(),
-                        abs_path=str(path.resolve()),
-                        size=stat.st_size,
-                        mtime=stat.st_mtime,
-                        md5=file_md5(path),
-                    )
-                except OSError:
+                except OSError as exc:
+                    failures.append({
+                        "rel_path": rel_path, "stage": "scan",
+                        "reason": "stat_failed", "message": f"扫描失败: {exc}",
+                    })
                     continue
-                items.append(item)
-        return items
+                try:
+                    md5 = file_md5(path)
+                except OSError as exc:
+                    failures.append({
+                        "rel_path": rel_path, "stage": "scan",
+                        "reason": "hash_failed", "message": f"扫描失败: {exc}",
+                    })
+                    continue
+                items.append(ScanItem(
+                    rel_path=rel_path,
+                    abs_path=str(path.resolve()),
+                    size=stat.st_size,
+                    mtime=stat.st_mtime,
+                    md5=md5,
+                ))
+        return items, failures
 
     def export_manifest(self, output: Path | str, items: list[ScanItem]) -> Path:
         """导出 JSON 清单。"""

@@ -51,10 +51,28 @@ CREATE TABLE IF NOT EXISTS exports (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
  format TEXT, path TEXT, sha256 TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS failure_records (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+ file_id INTEGER REFERENCES task_files(id) ON DELETE SET NULL,
+ rel_path TEXT NOT NULL, source_md5 TEXT,
+ category TEXT, reason TEXT, stage TEXT, message TEXT,
+ occurrences INTEGER DEFAULT 1,
+ status TEXT DEFAULT 'isolated',
+ source TEXT DEFAULT 'task',
+ recheck_count INTEGER DEFAULT 0, last_recheck_at TEXT,
+ created_at TEXT, updated_at TEXT,
+ UNIQUE(task_id, rel_path));
+CREATE TABLE IF NOT EXISTS recheck_runs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+ checked INTEGER DEFAULT 0, recovered INTEGER DEFAULT 0,
+ still_failed INTEGER DEFAULT 0, created_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_results_task ON results(task_id);
 CREATE INDEX IF NOT EXISTS idx_results_path ON results(task_id, source_rel_path);
 CREATE INDEX IF NOT EXISTS idx_traces_result ON traces(result_id);
 CREATE INDEX IF NOT EXISTS idx_files_task ON task_files(task_id, status);
+CREATE INDEX IF NOT EXISTS idx_failures_task ON failure_records(task_id, status);
 """
 
 TASK_FIELDS = {

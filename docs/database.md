@@ -11,12 +11,16 @@ tasks 1 ─── n task_files
   ├── n results 1 ─── n validations
   │              ├── n traces
   │              └── 0..n results（同文件历史版本，按 version）
+  ├── n failure_records（隔离台账，按 rel_path 唯一）
+  ├── n recheck_runs（只读复检批次记录）
   ├── n dedup_reports
   ├── n exports
   └── n rules_versions（按 rule_id + version 去重）
 ```
 
-`results.file_id` 指向产生该结果的 `task_files` 行；源文件被删除时该字段置空，但结果与快照保留。`task_files`、`results`、`validations`、`traces`、`dedup_reports`、`exports` 均随任务级联删除。去重逻辑删除只更新 `results.is_deleted`，不做物理删除。
+`results.file_id` 指向产生该结果的 `task_files` 行；源文件被删除时该字段置空，但结果与快照保留。`task_files`、`results`、`validations`、`traces`、`failure_records`、`recheck_runs`、`dedup_reports`、`exports` 均随任务级联删除。去重逻辑删除只更新 `results.is_deleted`，不做物理删除。
+
+> **兼容性**：`failure_records` 与 `recheck_runs` 是 1.1 新增的**独立表**，未修改 `tasks`、`task_files`、`results` 的任何列。打开旧版数据库时会自动补建空表，历史 `task_files` 失败行仍可读取；台账查询会把没有对应台账行的历史失败记录按 `error` 文本推断原因后并入展示（标记 `legacy=true`），不会读取崩溃，也不会重复计数。
 
 ## 二、表定义
 
@@ -49,11 +53,44 @@ tasks 1 ─── n task_files
 | size / mtime | INTEGER / REAL | 文件大小与修改时间 |
 | md5 | TEXT | 文件 MD5，用于增量判断 |
 | status | TEXT | `pending`/`processing`/`success`/`failed`/`removed` |
-| error | TEXT | 失败原因（截断） |
+| error | TEXT | 失败原因（截断，兼容旧版展示） |
 | result_id | INTEGER | 最近一次成功结果 |
 | updated_at | TEXT | 更新时间 |
 
-唯一约束：`(task_id, rel_path)`。断点续跑只取 `pending`；进程退出遗留的 `processing` 在执行前会重置为 `pending`；扫描阶段发现文件消失则标记 `removed`。
+唯一约束：`(task_id, rel_path)`。断点续跑只取 `pending`；进程退出遗留的 `processing` 在执行前会重置为 `pending`；扫描阶段发现文件消失则标记 `removed`。该表结构未变，旧库可直接读取。
+
+### 2.1 failure_records — 失败隔离台账
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 自增 |
+| task_id | INTEGER FK | 所属任务 |
+| file_id | INTEGER FK | 来源文件行，可为空 |
+| rel_path | TEXT | 相对路径 |
+| source_md5 | TEXT | 失败时文件 MD5 |
+| category | TEXT | 分类：`encoding`/`structure`/`rule`/`processing`/`scan`/`unknown` |
+| reason | TEXT | 稳定原因代码，如 `decode_failed`、`missing_form_marker` |
+| stage | TEXT | 失败阶段：`scan`/`encoding`/`parse`/`match`/`process` |
+| message | TEXT | 失败描述（截断） |
+| occurrences | INTEGER | 正常链路重复失败次数（复检不计入） |
+| status | TEXT | `isolated`/`recovered` |
+| source | TEXT | `task`（入库链路）或 `recheck`（复检补建） |
+| recheck_count | INTEGER | 只读复检次数 |
+| last_recheck_at | TEXT | 最近复检时间 |
+| created_at / updated_at | TEXT | 时间 |
+
+唯一约束：`(task_id, rel_path)`。同一文件多次失败只累加 `occurrences`，只读复检只更新状态与次数，**不会新增记录**，因此复检后台账条数保持稳定。`recovered` 仅表示复检时可解析，不改变 `task_files.status`，也不会自动入库。
+
+### 2.2 recheck_runs — 复检批次
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 自增 |
+| task_id | INTEGER FK | 所属任务 |
+| checked / recovered / still_failed | INTEGER | 本次检查、可解析、仍隔离数量 |
+| created_at | TEXT | 时间 |
+
+每次只读复检记一行，用于追溯复检历史；不参与任务成功/失败统计。
 
 ### 3. rules_versions — 规则版本
 
@@ -148,13 +185,15 @@ tasks 1 ─── n task_files
 - `idx_results_path(task_id, source_rel_path)`：同文件版本与历史。
 - `idx_traces_result(result_id)`：溯源链查询。
 - `idx_files_task(task_id, status)`：取待处理文件。
+- `idx_failures_task(task_id, status)`：隔离台账查询与复检。
 
 ## 四、并发与一致性
 
 - 单个 `sqlite3.Connection`，`check_same_thread=False`，所有读写由进程内 `RLock` 串行化。
 - WAL 允许读写并行度更好；`synchronous=NORMAL` 在本地单机场景兼顾可靠性与批量写入性能。
 - 字段校验、溯源、去重与结果写入在同一文件的持久化临界区内完成。
-- 单文件异常只更新 `task_files.status='failed'`，不破坏已完成结果。
+- 单文件异常只更新 `task_files.status='failed'` 并写入一条 `failure_records`，不破坏已完成结果。
+- 只读复检不进入结果写入临界区，不创建快照、不写 `results`/`validations`/`traces`/`dedup_reports`。
 
 ## 五、备份、恢复与检查
 
