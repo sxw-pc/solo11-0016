@@ -255,6 +255,8 @@ python -m archive_extractor.cli [--data-dir DIR] [--timeout 秒] 子命令 ...
 | `task-action ID ACTION` | 暂停/继续/取消/重试/删除 | `python -m archive_extractor.cli task-action 1 retry` |
 | `errors ID OUT.csv` | 导出错误清单 | `python -m archive_extractor.cli errors 1 errors.csv` |
 | `dedup ID` | 查看去重报告 | `python -m archive_extractor.cli dedup 1` |
+| `lineage ID...` | 只读聚合多批次字段血缘与规则断点 | `python -m archive_extractor.cli lineage 1 2` |
+| `lineage-clean` | 清理血缘聚合产物（不影响批次数据） | `python -m archive_extractor.cli lineage-clean --run-id lineage-xxxx` |
 | `demo` | 跑通内置 mock 全流程 | `python -m archive_extractor.cli demo --fresh` |
 | `service` | 启动本地管理界面 | `python -m archive_extractor.cli service --port 5001` |
 | `clean-demo` | 清理演示数据库、快照与导出 | `python -m archive_extractor.cli clean-demo` |
@@ -283,12 +285,17 @@ python -m archive_extractor.cli service --port 5001
 data/
 ├── archive.db                 # SQLite：任务、文件、结果、校验、溯源、去重、导出
 ├── demo.db                    # demo 命令专用数据库
+├── lineage/                   # 离线血缘聚合产物（可整体清理，不回写批次数据）
+│   ├── runs_index.json
+│   └── lineage-<批次集合哈希>/ # batch_manifest / field_alignment / lineage_view
 └── files/
     ├── snapshots/<md5前2位>/  # 按 MD5 保存的原始文件不可变快照
     └── exports/               # CSV / JSON / XLSX 与 .sha256 校验文件
 ```
 
 SQLite 使用 WAL、`synchronous=NORMAL`、外键约束和常用索引。同一任务的同文件重跑会生成新 `version`，旧版本置为 `superseded` 并逻辑删除，不物理删除。完整表结构、字段含义、关系与备份方法见 [`docs/database.md`](docs/database.md)。
+
+跨批次的字段血缘聚合（规则版本断点、数据/规则变化区分、跨版本字段对齐与降级）为只读离线流程，设计与产物说明见 [`docs/lineage.md`](docs/lineage.md)。
 
 备份与恢复建议：停止服务后整体复制 `data/` 目录；恢复时覆盖回同一路径。若只复制 `archive.db`，请先执行 WAL checkpoint，否则可能遗漏 `archive.db-wal` 中尚未合并的数据。不要手工删除 `snapshots/`，否则历史溯源将失去原始内容。
 

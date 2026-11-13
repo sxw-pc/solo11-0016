@@ -81,6 +81,32 @@ def test_demo_and_clean_demo(tmp_path):
     assert result.exit_code == 0 and not (tmp_path / "demo.db").exists()
 
 
+def test_lineage_and_lineage_clean_cli(tmp_path):
+    """两个内置 mock 批次跑血缘聚合，再清理产物。"""
+    runner = CliRunner(mix_stderr=False)
+    first = invoke(runner, tmp_path, "run", str(MOCK), "--name", "批次A",
+                   "--limit", "3")
+    assert first.exit_code == 0, first.output
+    second = invoke(runner, tmp_path, "run", str(MOCK), "--name", "批次B",
+                    "--limit", "3")
+    assert second.exit_code == 0, second.output
+    task_ids = [
+        json.loads(first.output)["id"],
+        json.loads(second.output)["id"],
+    ]
+    result = invoke(runner, tmp_path, "lineage", *map(str, task_ids))
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    run_dir = tmp_path / "lineage" / payload["run_id"]
+    for name in ("batch_manifest.json", "field_alignment.json",
+                 "lineage_view.json"):
+        assert (run_dir / name).is_file()
+    result = invoke(runner, tmp_path, "lineage-clean", "--run-id",
+                    payload["run_id"])
+    assert result.exit_code == 0
+    assert not run_dir.exists()
+
+
 def test_service_uses_loopback_only(tmp_path, monkeypatch):
     captured = {}
 

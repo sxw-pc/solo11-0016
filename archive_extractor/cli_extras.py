@@ -10,6 +10,7 @@ from archive_extractor.core.archiver import Archiver
 from archive_extractor.core.deduplicator import Deduplicator
 from archive_extractor.core.task_runner import TaskRunner
 from archive_extractor.demo import clean_demo
+from archive_extractor.lineage import LineageAggregator
 from archive_extractor.storage.file_store import FileStore
 
 
@@ -70,3 +71,27 @@ def register_extra_commands(group) -> None:
         """清理演示数据库、快照与导出。"""
         clean_demo(ctx.obj["data_dir"])
         click.echo("演示数据已清理")
+
+    @group.command("lineage")
+    @click.argument("task_ids", nargs=-1, type=int, required=True)
+    @click.option("--output-dir", type=click.Path(path_type=Path), default=None,
+                  help="血缘产物目录，默认 数据目录/lineage")
+    @click.pass_context
+    def lineage_command(ctx, task_ids, output_dir):
+        """只读聚合多个任务批次的字段血缘视图与规则断点。"""
+        target = output_dir or (Path(ctx.obj["data_dir"]) / "lineage")
+        aggregator = LineageAggregator(ctx.obj["db"], target)
+        summary = aggregator.run(list(task_ids))
+        click.echo(json.dumps(summary, ensure_ascii=False, indent=2))
+
+    @group.command("lineage-clean")
+    @click.option("--run-id", default=None, help="只清理指定运行标识的产物")
+    @click.option("--output-dir", type=click.Path(path_type=Path), default=None,
+                  help="血缘产物目录，默认 数据目录/lineage")
+    @click.pass_context
+    def lineage_clean_command(ctx, run_id, output_dir):
+        """清理血缘聚合中间产物（不影响批次数据与快照）。"""
+        target = output_dir or (Path(ctx.obj["data_dir"]) / "lineage")
+        aggregator = LineageAggregator(ctx.obj["db"], target)
+        removed = aggregator.clean(run_id)
+        click.echo(json.dumps({"removed": removed}, ensure_ascii=False, indent=2))
