@@ -47,32 +47,44 @@
 | 磁盘 | 建议预留源文件 2 倍以上空间（快照与导出） |
 | 网络 | 运行、测试、演示均不需要网络 |
 
-依赖版本固定在 `requirements.txt`：BeautifulSoup4 4.12.2、lxml 4.9.3、PyYAML 6.0.1、Click 8.1.7、Flask 3.0.0、openpyxl 3.1.2、python-dateutil 2.8.2、pytest 7.4.3、pytest-cov 4.1.0。
+依赖分两层管理：
 
-### 离线安装（推荐流程）
+- `requirements.txt`：人工维护的**直接依赖**（BeautifulSoup4 4.12.2、lxml 4.9.3、PyYAML 6.0.1、Click 8.1.7、Flask 3.0.0、openpyxl 3.1.2、python-dateutil 2.8.2、pytest 7.4.3、pytest-cov 4.1.0）。
+- `requirements.lock`：自动生成的**完整锁定清单**，固定直接依赖与全部传递依赖的版本、来源 wheel 文件名与 SHA256 哈希；条件依赖（如 Windows 专用的 colorama）保留环境标记，不会展开成全部安装。请勿手工编辑。
+- `offline_wheels/`：锁文件记录的全部 wheel 文件（含 pip 自举包），与锁文件一起纳入版本管理。
 
-在一台与目标机同操作系统、同 Python 大版本、可联网的准备机上打包一次依赖：
+### 离线安装（锁文件驱动）
 
-```bash
-python -m pip download -r requirements.txt -d offline_wheels
-```
-
-把整个项目目录与 `offline_wheels/` 一起拷贝到断网目标机，然后执行：
+项目自带锁定的 `requirements.lock` 与 `offline_wheels/`，断网目标机上直接执行：
 
 ```bash
-python -m pip install --no-index --find-links=offline_wheels -r requirements.txt
-```
-
-Windows 可将 `python` 换成 `py -3.11` 等实际解释器。若使用虚拟环境：
-
-```bash
-python -m venv .venv
 # Windows
-.venv\Scripts\activate
+scripts\install_offline.bat
+
 # macOS / Linux
-source .venv/bin/activate
-python -m pip install --no-index --find-links=offline_wheels -r requirements.txt
+sh scripts/install_offline.sh
 ```
+
+等价的显式命令：
+
+```bash
+python scripts/install_offline.py
+```
+
+安装器会在**安装开始前**核对锁文件与 wheel 目录：缺 wheel、哈希不符、wheel 与本机平台不兼容都会指名报出并给出补齐方法，不会装到一半才失败。空环境（连 pip 都没有）也能运行：脚本会用锁文件里的自举 pip wheel 引导安装。只想预检不安装时执行 `python scripts/install_offline.py --check`。
+
+若使用虚拟环境，先激活再执行同一命令；Windows 可将 `python` 换成 `py -3.11` 等实际解释器。
+
+### 重新生成锁文件（准备机，需联网）
+
+修改 `requirements.txt` 后，在可联网的准备机上重新解析并下载全部 wheel：
+
+```bash
+python scripts/lock_deps.py          # 重新生成 requirements.lock 并同步 offline_wheels/
+python scripts/lock_deps.py --check  # 只校验锁文件与重算结果是否逐行一致
+```
+
+解析在独立临时目录中进行（pip 只下载不安装），不会改动当前环境已安装的包。已存在的锁文件会作为版本约束参与重算，因此增量重算与从零重建的结果逐行一致。锁文件与解析机的操作系统、CPU 架构和 Python 大版本绑定；更换目标平台时，请在与目标机一致的准备机上重新生成。
 
 **完全离线验证**：安装完成后断开网络，依次执行 `scripts/run_demo.*`、`scripts/run_test.*`、`scripts/run_service.*`，三套流程均不依赖外网。
 

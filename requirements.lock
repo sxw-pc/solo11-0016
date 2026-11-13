@@ -1,0 +1,130 @@
+# =============================================================================
+# requirements.lock —— 档采匠离线依赖锁定清单（自动生成，请勿手工编辑）
+#
+# 重新生成: python scripts/lock_deps.py
+# 一致校验: python scripts/lock_deps.py --check
+# 离线安装: python scripts/install_offline.py
+#
+# 解析环境: Python 3.11.2 (linux, aarch64)
+# 内容: requirements.txt 直接依赖 + 全部传递依赖，条件依赖保留环境标记
+# =============================================================================
+
+# [bootstrap] 自举工具：空环境先用它安装 pip，再安装下方全部依赖
+pip==26.0.1 \
+    --hash=sha256:bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b
+    # wheel: pip-26.0.1-py3-none-any.whl
+
+
+# [runtime] 运行与测试依赖（requirements.txt 的完整传递闭包）
+beautifulsoup4==4.12.2 \
+    --hash=sha256:bd2520ca0d9d7d12694a53d44ac482d181b4ec1888909b035a3dbf40d0f57d4a
+    # wheel: beautifulsoup4-4.12.2-py3-none-any.whl
+
+blinker==1.9.0 \
+    --hash=sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc
+    # wheel: blinker-1.9.0-py3-none-any.whl
+
+click==8.1.7 \
+    --hash=sha256:ae74fb96c20a0277a1d615f1e4d73c8414f5a98db8b799a7931d1582f3390c28
+    # wheel: click-8.1.7-py3-none-any.whl
+
+colorama==0.4.6; platform_system == "Windows" or sys_platform == "win32" \
+    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+    # wheel: colorama-0.4.6-py2.py3-none-any.whl
+
+coverage==7.17.3 \
+    --hash=sha256:4dc3c84002968363c37688e0b325d51a51816c53f3c0cbb925254317c675a789
+    # wheel: coverage-7.17.3-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+
+et-xmlfile==2.0.0 \
+    --hash=sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
+    # wheel: et_xmlfile-2.0.0-py3-none-any.whl
+
+exceptiongroup==1.3.1; python_version < "3.11" \
+    --hash=sha256:a7a39a3bd276781e98394987d3a5701d0c4edffb633bb7a5144577f82c773598
+    # wheel: exceptiongroup-1.3.1-py3-none-any.whl
+
+flask==3.0.0 \
+    --hash=sha256:21128f47e4e3b9d597a3e8521a329bf56909b690fcc3fa3e477725aa81367638
+    # wheel: flask-3.0.0-py3-none-any.whl
+
+importlib-metadata==10.2.0; python_version < "3.10" \
+    --hash=sha256:c7a4bf1c7479601f6b8e437cfc14f4f77028ba62a8f34ae95cd93d9774dfba51
+    # wheel: importlib_metadata-10.2.0-py3-none-any.whl
+
+iniconfig==2.3.1 \
+    --hash=sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7
+    # wheel: iniconfig-2.3.1-py3-none-any.whl
+
+itsdangerous==2.2.0 \
+    --hash=sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef
+    # wheel: itsdangerous-2.2.0-py3-none-any.whl
+
+jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+    # wheel: jinja2-3.1.6-py3-none-any.whl
+
+lazy-importer==0.1.0; python_version < "3.10" and python_version < "3.15" \
+    --hash=sha256:bd93fab7bef18e842eea02b839410954d37889140dc64ca4d9680aec6880c739
+    # wheel: lazy_importer-0.1.0-py3-none-any.whl
+
+lxml==4.9.3 \
+    --hash=sha256:71c52db65e4b56b8ddc5bb89fb2e66c558ed9d1a74a45ceb7dcb20c191c3df2f
+    # wheel: lxml-4.9.3-cp311-cp311-manylinux_2_28_aarch64.whl
+
+markupsafe==3.0.4 \
+    --hash=sha256:849dd2bb0e5e4ab2b71c7191726a4a8d5aa8a610daa584728cbee0b710ddc4ef
+    # wheel: markupsafe-3.0.4-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+
+openpyxl==3.1.2 \
+    --hash=sha256:f91456ead12ab3c6c2e9491cf33ba6d08357d802192379bb482f1033ade496f5
+    # wheel: openpyxl-3.1.2-py2.py3-none-any.whl
+
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+    # wheel: packaging-26.3-py3-none-any.whl
+
+pluggy==1.7.0 \
+    --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec
+    # wheel: pluggy-1.7.0-py3-none-any.whl
+
+pytest==7.4.3 \
+    --hash=sha256:0d009c083ea859a71b76adf7c1d502e4bc170b80a8ef002da5806527b9591fac
+    # wheel: pytest-7.4.3-py3-none-any.whl
+
+pytest-cov==4.1.0 \
+    --hash=sha256:6ba70b9e97e69fcc3fb45bfeab2d0a138fb65c4d0d6a41ef33983ad114be8c3a
+    # wheel: pytest_cov-4.1.0-py3-none-any.whl
+
+python-dateutil==2.8.2 \
+    --hash=sha256:961d03dc3453ebbc59dbdea9e4e11c5651520a876d0f4db161e8674aae935da9
+    # wheel: python_dateutil-2.8.2-py2.py3-none-any.whl
+
+pyyaml==6.0.1 \
+    --hash=sha256:42f8152b8dbc4fe7d96729ec2b99c7097d656dc1213a3229ca5383f973a5ed6d
+    # wheel: PyYAML-6.0.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+    # wheel: six-1.17.0-py2.py3-none-any.whl
+
+soupsieve==2.10 \
+    --hash=sha256:8596eb8967d744174820280fa62b4542a2e955bfaccca73ed8a13c6eb8e9b502
+    # wheel: soupsieve-2.10-py3-none-any.whl
+
+tomli==2.5.0; python_version < "3.11" \
+    --hash=sha256:86665cee9c4835b7a7f1e8ec2c719b5258d4dc782887aded5a8ae7352a96843b
+    # wheel: tomli-2.5.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+
+typing-extensions==4.16.0; python_version < "3.11" and python_version < "3.13" \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+    # wheel: typing_extensions-4.16.0-py3-none-any.whl
+
+werkzeug==3.1.9 \
+    --hash=sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab
+    # wheel: werkzeug-3.1.9-py3-none-any.whl
+
+zipp==4.1.2; python_version < "3.10" \
+    --hash=sha256:b30cb6cd253122169c47de245ca24a86bac2a5d3802ba15bf7ba6414eb9e144d
+    # wheel: zipp-4.1.2-py3-none-any.whl
+

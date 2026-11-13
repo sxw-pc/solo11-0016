@@ -4,13 +4,21 @@
 
 ### Q1. 离线安装提示找不到包
 
-确认 `offline_wheels/` 与 `requirements.txt` 在同一工作目录，并使用：
+项目按 `requirements.lock` 锁文件从 `offline_wheels/` 安装，先运行预检确认缺什么：
 
 ```bash
-python -m pip install --no-index --find-links=offline_wheels -r requirements.txt
+python scripts/install_offline.py --check
 ```
 
-离线包必须与目标机的操作系统、CPU 架构和 Python 大版本匹配。Windows 上打包的 wheel 不能直接用于 Linux。
+预检会指名缺少的 wheel 文件或哈希不符的文件。补齐方法（在可联网的准备机上）：
+
+```bash
+python scripts/lock_deps.py        # 重新解析并下载全部 wheel
+```
+
+或按报错提示用 `pip download "包名==版本" --no-deps --only-binary=:all: -d offline_wheels` 单独补齐，再把 `offline_wheels/` 整体拷贝到目标机。
+
+离线包必须与目标机的操作系统、CPU 架构和 Python 大版本匹配。Windows 上打包的 wheel 不能直接用于 Linux；换平台请在与目标机一致的准备机上重新运行 `python scripts/lock_deps.py`。
 
 ### Q2. `python -m archive_extractor.cli` 提示模块不存在
 
