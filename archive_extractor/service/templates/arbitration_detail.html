@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}仲裁批次 {{ detail.batch.batch_no }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('arbitration_list_page') }}">← 返回仲裁批次列表</a></p>
+<h1>仲裁批次 <code>{{ detail.batch.batch_no }}</code></h1>
+<div class="card">
+  <dl class="kv">
+    <dt>批次 ID</dt><dd>#{{ detail.batch.id }}</dd>
+    <dt>所属任务</dt><dd>#{{ detail.batch.task_id }}</dd>
+    <dt>状态</dt><dd><span class="tag status-{{ 'completed' if detail.batch.status == 'committed' else 'paused' }}">{{ detail.batch.status }}</span></dd>
+    <dt>候选 / 分组 / 合并组</dt><dd>{{ detail.batch.candidate_count }} / {{ detail.batch.group_count }} / {{ detail.batch.merged_group_count }}</dd>
+    <dt>跨批冲突</dt><dd>{{ detail.batch.conflict_count }}</dd>
+    <dt>仲裁器版本</dt><dd>{{ detail.batch.arbiter_version }}</dd>
+    <dt>规则集签名</dt><dd><code>{{ detail.batch.ruleset_signature }}</code></dd>
+    <dt>创建 / 撤销时间</dt><dd>{{ detail.batch.created_at }} / {{ detail.batch.rolled_back_at or '—' }}</dd>
+    {% if detail.batch.rollback_reason %}<dt>撤销原因</dt><dd>{{ detail.batch.rollback_reason }}</dd>{% endif %}
+  </dl>
+  {% if detail.batch.status == 'committed' %}
+  <form class="inline" method="post" action="{{ url_for('arbitration_rollback', batch_ref=detail.batch.batch_no) }}"
+        onsubmit="return confirm('确认整体撤销该仲裁批次？字段、溯源、快照索引与逻辑删除标记将一起回退。');">
+    <button class="button danger" type="submit">整批撤销并恢复批次前状态</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>仲裁分组（{{ detail.groups|length }}）</h2>
+  {% if detail.groups %}
+  <table>
+    <thead><tr><th>分组</th><th>规则 / 逻辑主键</th><th>候选数</th><th>冠军结果</th><th>组内冲突</th></tr></thead>
+    <tbody>
+    {% for group in detail.groups %}
+      <tr>
+        <td>#{{ group.id }}</td>
+        <td>{{ group.rule_id }}<div class="muted">{{ group.logical_key or '（单候选/无主键）' }}</div></td>
+        <td>{{ group.candidate_count }}</td>
+        <td>{% if group.winner_result_id %}<a href="{{ url_for('result_detail', result_id=group.winner_result_id) }}">#{{ group.winner_result_id }}</a>{% else %}—{% endif %}</td>
+        <td>{% if group.had_conflict %}<span class="level-warning">是</span>{% else %}否{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">无分组记录。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>字段仲裁档案（{{ detail.field_records|length }}，含被淘汰值）</h2>
+  {% if detail.field_records %}
+  <table>
+    <thead><tr>
+      <th>字段</th><th>结论</th><th>字段值</th><th>校验等级</th>
+      <th>来源文件</th><th>MD5</th><th>行号</th><th>规则版本</th><th>仲裁理由</th>
+    </tr></thead>
+    <tbody>
+    {% for row in detail.field_records %}
+      <tr>
+        <td><code>{{ row.field_path }}</code></td>
+        <td>{% if row.adopted %}<span class="status-valid">采用</span>{% else %}<span class="level-warning">淘汰</span>{% endif %}</td>
+        <td>{{ row.field_value_json }}</td>
+        <td class="muted">{{ row.validation_level or '—' }}</td>
+        <td>{{ row.source_rel_path }}</td>
+        <td class="muted">{{ row.source_md5[:12] }}…</td>
+        <td>{{ row.source_line if row.source_line is not none else '—' }}</td>
+        <td class="muted">{{ row.rule_version }}</td>
+        <td class="muted">{{ row.reason }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">无字段档案。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>跨批冲突（{{ detail.conflicts|length }}）</h2>
+  {% if detail.conflicts %}
+  <table>
+    <thead><tr><th>逻辑主键</th><th>字段</th><th>既有值 / 来源</th><th>新值 / 来源</th><th>处理</th><th>摘要</th></tr></thead>
+    <tbody>
+    {% for row in detail.conflicts %}
+      <tr>
+        <td><code>{{ row.logical_key }}</code></td>
+        <td>{{ row.field_path }}</td>
+        <td>{{ row.incumbent_value_json }}<div class="muted">{{ row.incumbent_source }} #{{ row.incumbent_result_id }}</div></td>
+        <td>{{ row.incoming_value_json }}<div class="muted">{{ row.incoming_source }} #{{ row.incoming_result_id }}</div></td>
+        <td><span class="level-warning">{{ row.resolution }}</span></td>
+        <td class="muted">{{ row.summary }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">无跨批冲突。</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>撤销日志（{{ detail.journal|length }}）</h2>
+  {% if detail.journal %}
+  <table>
+    <thead><tr><th>实体</th><th>实体 ID</th><th>操作</th><th>时间</th></tr></thead>
+    <tbody>
+    {% for entry in detail.journal %}
+      <tr><td>{{ entry.entity }}</td><td>{{ entry.entity_id }}</td><td>{{ entry.operation }}</td><td class="muted">{{ entry.created_at }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">无撤销日志。</p>{% endif %}
+</div>
+{% endblock %}

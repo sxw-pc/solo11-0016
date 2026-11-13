@@ -157,6 +157,7 @@ Excel 台账固定包含「批次信息、提取统计、结果明细、错误�
 - **任务批次（Task）**：一次扫描与处理的范围，记录扫描根目录、规则目录、并发数、配置、进度和状态。任务文件清单保存在 `task_files`，支持增量比对与断点续跑。
 - **溯源链（Trace Chain）**：结果、字段级溯源、校验记录、快照、同文件历史版本的集合。每个字段记录源文件相对路径、MD5、行号、选择器、选择器类型、原始值、规则版本、提取时间。
 - **去重策略**：先用 `primary_key` 做精确匹配；未命中时按 `fuzzy_fields` 计算编辑距离相似度，并取各字段相似度的最小值。达到阈值即判重。默认保留源文件修改时间较新的记录，另一条逻辑删除并写入 `dedup_reports`。
+- **字段级仲裁（Arbitration）**：位于解析、校验之后、落库之前的独立可回放阶段，不改变上述去重语义。同一批次内同一逻辑表单（`rule_id + primary_key`）的多份候选逐字段仲裁，优先级固定为 **非空 > 校验等级 > 来源文件修改时间 > 稳定次序**。冠军结果落合并后的字段值，被淘汰值连同来源文件相对路径、MD5、行号、选择器、规则版本写入仲裁档案。每个仲裁批次有全局唯一批次号，可整体撤销（字段、溯源、快照索引、逻辑删除标记一起回退）、可回放校验、可独立导出。两个批次并发写同一逻辑表单时，后到批次不静默覆盖，差异进入跨批冲突档案并附可读摘要。
 - **错误等级**：`error` 阻断为无效结果；`warning` 允许入库但标记；`info` 仅记录。字段类型转换失败按 `error` 处理。整体状态取最高等级。
 
 ## 6. 自定义规则开发指南
@@ -255,11 +256,18 @@ python -m archive_extractor.cli [--data-dir DIR] [--timeout 秒] 子命令 ...
 | `task-action ID ACTION` | 暂停/继续/取消/重试/删除 | `python -m archive_extractor.cli task-action 1 retry` |
 | `errors ID OUT.csv` | 导出错误清单 | `python -m archive_extractor.cli errors 1 errors.csv` |
 | `dedup ID` | 查看去重报告 | `python -m archive_extractor.cli dedup 1` |
+| `arbitration-list` | 列出仲裁批次（可 `--task-id` 过滤） | `python -m archive_extractor.cli arbitration-list --task-id 1` |
+| `arbitration-detail BATCH` | 查看批次字段采用/淘汰档案、冲突与撤销日志 | `python -m archive_extractor.cli arbitration-detail ARB-T1-...-0001` |
+| `arbitration-replay BATCH` | 用档案回放仲裁，校验采用结论是否仍一致 | `python -m archive_extractor.cli arbitration-replay ARB-T1-...-0001` |
+| `arbitration-rollback BATCH` | 按批次号整体撤销，恢复批次前字段状态 | `python -m archive_extractor.cli arbitration-rollback ARB-T1-...-0001` |
+| `arbitration-export ID` | 独立导出仲裁档案（被淘汰值单独查看），不动既有台账 | `python -m archive_extractor.cli arbitration-export 1 --format xlsx` |
 | `demo` | 跑通内置 mock 全流程 | `python -m archive_extractor.cli demo --fresh` |
 | `service` | 启动本地管理界面 | `python -m archive_extractor.cli service --port 5001` |
 | `clean-demo` | 清理演示数据库、快照与导出 | `python -m archive_extractor.cli clean-demo` |
 
 `run` 的 `--limit N` 可用于分批处理或断点续跑；`--timeout` 控制单文件超时，默认 10 秒。`export --format` 可选 `xlsx`、`csv`、`json`、`all`。
+
+仲裁批次号（`BATCH`）支持传完整批次号或批次数字 ID。`arbitration-export` 生成独立文件（Excel 为「仲裁批次 / 字段仲裁档案 / 跨批冲突」三个 Sheet），不改变既有台账的五个 Sheet 结构；找不到仲裁记录、重复撤销或撤销中途失败时都会给出明确错误提示，撤销失败由事务保证整体回滚、无部分成功。
 
 ## 8. 本地管理服务使用指南
 

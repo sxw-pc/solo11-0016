@@ -20,6 +20,7 @@ from flask import (
 )
 
 from archive_extractor.config.loader import DEFAULT_RULE_DIR
+from archive_extractor.core.arbiter import Arbiter, ArbitrationError
 from archive_extractor.core.archiver import Archiver
 from archive_extractor.core.deduplicator import Deduplicator
 from archive_extractor.core.task_runner import TaskRunner
@@ -42,11 +43,12 @@ def create_app(
     store = FileStore(base)
     archiver = Archiver(db, store)
     tracer = Tracer(db, store)
+    arbiter = Arbiter(db, store)
     app = Flask(__name__)
     app.secret_key = os.urandom(24)
     app.config.update(JSON_AS_ASCII=False, MAX_CONTENT_LENGTH=2 * 1024 * 1024)
     app.extensions.update(
-        db=db, store=store, archiver=archiver, tracer=tracer,
+        db=db, store=store, archiver=archiver, tracer=tracer, arbiter=arbiter,
         auth=threading.Lock(), running=set(),
     )
 
@@ -173,6 +175,50 @@ def create_app(
         path = store.new_export_path("csv", f"task_{task_id}_errors")
         archiver.export_error_list(task_id, path)
         return send_file(path, as_attachment=True, download_name=path.name)
+
+    @app.route("/arbitration")
+    def arbitration_list_page():
+        task_id = request.args.get("task_id", "").strip()
+        batches = db.list_arbitration_batches(
+            int(task_id) if task_id.isdigit() else None
+        )
+        return render_template(
+            "arbitration_list.html", batches=batches,
+            tasks=db.list_tasks(100), selected_task=task_id,
+        )
+
+    @app.route("/arbitration/<batch_ref>")
+    def arbitration_detail_page(batch_ref: str):
+        try:
+            detail = arbiter.batch_detail(batch_ref)
+        except ArbitrationError:
+            abort(404)
+        return render_template("arbitration_detail.html", detail=detail)
+
+    @app.post("/arbitration/<batch_ref>/rollback")
+    def arbitration_rollback(batch_ref: str):
+        try:
+            result = arbiter.rollback_batch(batch_ref)
+            flash(
+                f"仲裁批次 {result['batch_no']} 已撤销，"
+                f"恢复 {result['journal_entries']} 项变更。", "info"
+            )
+        except ArbitrationError as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("arbitration_list_page"))
+
+    @app.route("/arbitration/<int:task_id>/<fmt>")
+    def arbitration_export_file(task_id: int, fmt: str):
+        if not db.get_task(task_id):
+            abort(404)
+        if fmt not in {"csv", "json", "xlsx"}:
+            abort(400)
+        try:
+            result = archiver.export_arbitration(task_id, fmt)
+        except ValueError as exc:
+            abort(400, str(exc))
+        return send_file(result["path"], as_attachment=True,
+                         download_name=Path(result["path"]).name)
 
     @app.errorhandler(404)
     def not_found(_error):

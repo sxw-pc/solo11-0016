@@ -48,6 +48,43 @@
   </table>
   {% else %}<p class="muted">未记录字段级溯源。</p>{% endif %}
 </div>
+{% if chain.arbitration and chain.arbitration.in_batch %}
+<div class="card">
+  <h2>字段仲裁采用（批次
+    {% for batch in chain.arbitration.batches %}
+      <a href="{{ url_for('arbitration_detail_page', batch_ref=batch.batch_no) }}"><code>{{ batch.batch_no }}</code></a>{% if not loop.last %}、{% endif %}
+    {% endfor %}）
+  </h2>
+  <p class="muted">同一逻辑表单的多份候选按“非空 &gt; 校验等级 &gt; 文件修改时间 &gt; 稳定次序”逐字段仲裁；被淘汰值见仲裁档案。</p>
+  <table>
+    <thead><tr><th>字段</th><th>结论</th><th>采用来源文件</th><th>MD5</th><th>行号</th><th>字段值</th><th>理由</th></tr></thead>
+    <tbody>
+    {% for row in chain.arbitration.adopted %}
+      <tr>
+        <td><code>{{ row.field_path }}</code></td>
+        <td><span class="status-valid">采用</span></td>
+        <td>{{ row.source_rel_path }}</td>
+        <td class="muted">{{ row.source_md5[:12] }}…</td>
+        <td>{{ row.source_line if row.source_line is not none else '—' }}</td>
+        <td>{{ row.field_value_json }}</td>
+        <td class="muted">{{ row.reason }}</td>
+      </tr>
+    {% endfor %}
+    {% for row in chain.arbitration.superseded %}
+      <tr>
+        <td><code>{{ row.field_path }}</code></td>
+        <td><span class="level-warning">淘汰</span></td>
+        <td>{{ row.source_rel_path }}</td>
+        <td class="muted">{{ row.source_md5[:12] }}…</td>
+        <td>{{ row.source_line if row.source_line is not none else '—' }}</td>
+        <td>{{ row.field_value_json }}</td>
+        <td class="muted">{{ row.reason }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 <div class="card">
   <h2>历史版本</h2>
   {% if chain.history|length > 1 %}

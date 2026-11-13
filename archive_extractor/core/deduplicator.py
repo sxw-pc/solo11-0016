@@ -69,9 +69,19 @@ class Deduplicator:
         self.db = db
         self.default_threshold = float(default_threshold)
         self._cache: dict[int, dict[int, dict]] = {}
+        # 可选的仲裁撤销日志钩子：在仲裁事务内由 Arbiter 注入，
+        # 非仲裁路径保持 None，行为与历史完全一致。
+        self.journal_hook = None
 
     def begin(self, task_id: int) -> None:
-        """任务级预加载候选索引，避免每个文件重复读取全表。"""
+        """任务级预加载候选索引，避免每个文件重复读取全表。
+
+        仲裁批次在单个写事务内落库，未提交的新结果对预加载查询不可见；
+        此时跳过缓存，_candidates 会回退为直查（同一连接可读到本事务写入）。
+        """
+        if getattr(self.db, "in_transaction", False):
+            self._cache.pop(task_id, None)
+            return
         rows = self.db.query(
             """SELECT id, data_json, source_mtime FROM results
                WHERE task_id = ? AND is_deleted = 0
@@ -178,6 +188,11 @@ class Deduplicator:
         loser = candidate["id"] if keep_new else result_id
         keeper = result_id if keep_new else candidate["id"]
         self._update_cache(task_id, result_id, data, source_mtime, loser, keeper)
+        loser_before = self.db.query_one(
+            "SELECT * FROM results WHERE id = ?", (loser,)
+        )
+        if self.journal_hook is not None and loser_before is not None:
+            self.journal_hook("results", loser, "update", loser_before)
         self.db.execute(
             """UPDATE results SET is_deleted = 1, status = 'duplicate',
                duplicate_of = ?, deleted_reason = ?, updated_at = ?
@@ -193,7 +208,9 @@ class Deduplicator:
             "action": "logical_delete",
             "created_at": utc_now(),
         }
-        self.db.add_dedup_report(report)
+        report_id = self.db.add_dedup_report(report)
+        if self.journal_hook is not None:
+            self.journal_hook("dedup_reports", report_id, "insert", None)
         return report
 
     def restore(self, result_id: int) -> bool:

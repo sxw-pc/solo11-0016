@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}仲裁档案{% endblock %}
+{% block content %}
+<h1>字段级仲裁批次</h1>
+<div class="card">
+  <form class="filters" method="get" action="{{ url_for('arbitration_list_page') }}">
+    <label class="field">任务<select name="task_id"><option value="">全部任务</option>
+      {% for task in tasks %}<option value="{{ task.id }}" {% if selected_task|string == task.id|string %}selected{% endif %}>#{{ task.id }} {{ task.name }}</option>{% endfor %}
+    </select></label>
+    <button type="submit">筛选</button>
+  </form>
+</div>
+<div class="card">
+  {% if batches %}
+  <table>
+    <thead><tr>
+      <th>批次号</th><th>任务</th><th>状态</th><th>候选</th><th>分组</th>
+      <th>合并组</th><th>跨批冲突</th><th>仲裁器版本</th><th>创建时间</th><th>操作</th>
+    </tr></thead>
+    <tbody>
+    {% for batch in batches %}
+      <tr>
+        <td><a href="{{ url_for('arbitration_detail_page', batch_ref=batch.batch_no) }}"><code>{{ batch.batch_no }}</code></a></td>
+        <td>#{{ batch.task_id }}</td>
+        <td><span class="tag status-{{ 'completed' if batch.status == 'committed' else 'paused' }}">{{ batch.status }}</span></td>
+        <td>{{ batch.candidate_count }}</td><td>{{ batch.group_count }}</td>
+        <td>{{ batch.merged_group_count }}</td>
+        <td>{% if batch.conflict_count %}<span class="level-warning">{{ batch.conflict_count }}</span>{% else %}0{% endif %}</td>
+        <td class="muted">{{ batch.arbiter_version }}</td><td class="muted">{{ batch.created_at }}</td>
+        <td>
+          <a class="button small" href="{{ url_for('arbitration_export_file', task_id=batch.task_id, fmt='xlsx') }}">导出档案</a>
+          {% if batch.status == 'committed' %}
+          <form class="inline" method="post" action="{{ url_for('arbitration_rollback', batch_ref=batch.batch_no) }}"
+                onsubmit="return confirm('确认整体撤销仲裁批次 {{ batch.batch_no }}？字段、溯源、快照索引与逻辑删除标记将一起回退。');">
+            <button class="button small danger" type="submit">整批撤销</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">暂无仲裁批次。运行含重复逻辑表单的任务后会自动生成。</p>{% endif %}
+</div>
+{% endblock %}

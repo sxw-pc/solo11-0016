@@ -8,7 +8,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 from archive_extractor.utils.common import ensure_dir, utc_now
-from archive_extractor.storage.db_schema import SCHEMA, TASK_FIELDS
+from archive_extractor.storage.db_schema import (
+    MIGRATION_COLUMNS,
+    SCHEMA_INDEXES,
+    SCHEMA_TABLES,
+    TASK_FIELDS,
+)
+
+# 允许进入仲裁撤销日志的表，杜绝表名注入。
+JOURNAL_ENTITIES = {
+    "results", "traces", "validations", "dedup_reports", "task_files",
+}
 
 
 class SQLiteClient:
@@ -18,6 +28,8 @@ class SQLiteClient:
         self.path = Path(db_path)
         ensure_dir(self.path.parent)
         self._lock = threading.RLock()
+        self._in_tx = False
+        self._columns_cache: dict[str, list[str]] = {}
         self.conn = sqlite3.connect(
             str(self.path), check_same_thread=False, timeout=15
         )
@@ -27,17 +39,69 @@ class SQLiteClient:
 
     def init_schema(self) -> None:
         with self._lock:
-            self.conn.executescript(SCHEMA)
+            # 先建表，再对旧表补列，最后建索引——索引可能引用新增列。
+            self.conn.executescript(SCHEMA_TABLES)
+            self._migrate()
+            self.conn.executescript(SCHEMA_INDEXES)
             self.conn.commit()
+
+    def _migrate(self) -> None:
+        """对旧版本数据库补齐新增列，新表由 CREATE TABLE IF NOT EXISTS 覆盖。"""
+        for table, columns in MIGRATION_COLUMNS.items():
+            existing = {
+                row["name"] for row in self.conn.execute(
+                    f"PRAGMA table_info({table})"
+                ).fetchall()
+            }
+            for name, declaration in columns.items():
+                if name not in existing:
+                    self.conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {declaration}"
+                    )
 
     def close(self) -> None:
         with self._lock:
             self.conn.close()
 
+    def begin_immediate(self) -> None:
+        """开启写事务并持有锁，直到 commit/rollback；用于仲裁提交与整批撤销。"""
+        if self._in_tx:
+            raise RuntimeError("当前线程已存在未结束的事务")
+        self._lock.acquire()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            self._in_tx = True
+        except Exception:
+            self._lock.release()
+            raise
+
+    def commit(self) -> None:
+        if not self._in_tx:
+            raise RuntimeError("没有待提交的事务")
+        try:
+            self.conn.commit()
+        finally:
+            self._in_tx = False
+            self._lock.release()
+
+    def rollback(self) -> None:
+        if not self._in_tx:
+            return
+        try:
+            self.conn.rollback()
+        finally:
+            self._in_tx = False
+            self._lock.release()
+
+    @property
+    def in_transaction(self) -> bool:
+        return self._in_tx
+
     def execute(self, sql: str, params: tuple = ()) -> int:
         with self._lock:
             cursor = self.conn.execute(sql, params)
-            self.conn.commit()
+            if not self._in_tx:
+                self.conn.commit()
             if sql.lstrip().upper().startswith("INSERT"):
                 return int(cursor.lastrowid or 0)
             return int(cursor.rowcount)
@@ -45,7 +109,8 @@ class SQLiteClient:
     def executemany(self, sql: str, rows: list[tuple]) -> None:
         with self._lock:
             self.conn.executemany(sql, rows)
-            self.conn.commit()
+            if not self._in_tx:
+                self.conn.commit()
 
     def query(self, sql: str, params: tuple = ()) -> list[dict]:
         with self._lock:
@@ -297,4 +362,219 @@ class SQLiteClient:
         return self.execute(
             """INSERT INTO exports (task_id, format, path, sha256, created_at)
                VALUES (?, ?, ?, ?, ?)""", (task_id, fmt, path, sha256, utc_now())
+        )
+
+    # 仲裁批次与撤销日志
+    def table_columns(self, table: str) -> list[str]:
+        cached = self._columns_cache.get(table)
+        if cached is not None:
+            return cached
+        rows = self.query(f"PRAGMA table_info({table})")
+        columns = [row["name"] for row in rows]
+        self._columns_cache[table] = columns
+        return columns
+
+    def create_arbitration_batch(self, payload: dict) -> int:
+        return self.execute(
+            """INSERT INTO arbitration_batches
+               (batch_no, task_id, ruleset_signature, arbiter_version,
+                rule_versions_json, status, candidate_count, group_count,
+                merged_group_count, conflict_count, summary_json,
+                created_at, committed_at)
+               VALUES (?, ?, ?, ?, ?, 'committed', ?, ?, ?, ?, ?, ?, ?)""",
+            (payload["batch_no"], payload["task_id"],
+             payload.get("ruleset_signature", ""), payload["arbiter_version"],
+             json.dumps(payload.get("rule_versions", []), ensure_ascii=False),
+             int(payload.get("candidate_count", 0)),
+             int(payload.get("group_count", 0)),
+             int(payload.get("merged_group_count", 0)),
+             int(payload.get("conflict_count", 0)),
+             json.dumps(payload.get("summary", {}), ensure_ascii=False),
+             utc_now(), payload.get("committed_at", utc_now())),
+        )
+
+    def get_arbitration_batch(self, batch_id: int) -> Optional[dict]:
+        return self.query_one(
+            "SELECT * FROM arbitration_batches WHERE id = ?", (batch_id,)
+        )
+
+    def get_arbitration_batch_by_no(self, batch_no: str) -> Optional[dict]:
+        return self.query_one(
+            "SELECT * FROM arbitration_batches WHERE batch_no = ?", (batch_no,)
+        )
+
+    def list_arbitration_batches(
+        self, task_id: Optional[int] = None, limit: int = 100
+    ) -> list[dict]:
+        if task_id is None:
+            return self.query(
+                """SELECT * FROM arbitration_batches ORDER BY id DESC LIMIT ?""",
+                (int(limit),),
+            )
+        return self.query(
+            """SELECT * FROM arbitration_batches WHERE task_id = ?
+               ORDER BY id DESC LIMIT ?""",
+            (task_id, int(limit)),
+        )
+
+    def mark_batch_rolled_back(
+        self, batch_id: int, reason: str = "manual_rollback"
+    ) -> None:
+        self.execute(
+            """UPDATE arbitration_batches
+               SET status = 'rolled_back', rolled_back_at = ?,
+                   rollback_reason = ? WHERE id = ?""",
+            (utc_now(), reason, batch_id),
+        )
+
+    def create_arbitration_group(self, payload: dict) -> int:
+        return self.execute(
+            """INSERT INTO arbitration_groups
+               (batch_id, rule_id, form_type, logical_key, winner_result_id,
+                merged_data_json, original_data_json, candidate_count,
+                had_conflict, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (payload["batch_id"], payload.get("rule_id", ""),
+             payload.get("form_type", ""), payload.get("logical_key", ""),
+             payload.get("winner_result_id"),
+             json.dumps(payload.get("merged_data", {}), ensure_ascii=False),
+             json.dumps(payload.get("original_data", {}), ensure_ascii=False),
+             int(payload.get("candidate_count", 1)),
+             1 if payload.get("had_conflict") else 0, utc_now()),
+        )
+
+    def set_group_winner(self, group_id: int, winner_result_id: int) -> None:
+        self.execute(
+            "UPDATE arbitration_groups SET winner_result_id = ? WHERE id = ?",
+            (winner_result_id, group_id),
+        )
+
+    def list_arbitration_groups(self, batch_id: int) -> list[dict]:
+        return self.query(
+            "SELECT * FROM arbitration_groups WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        )
+
+    def add_arbitration_field_records(self, rows: list[dict]) -> None:
+        self.executemany(
+            """INSERT INTO arbitration_field_records
+               (batch_id, group_id, result_id, field_path, adopted,
+                field_value_json, is_empty, validation_level, source_mtime,
+                source_rel_path, source_md5, source_line, selector,
+                selector_type, rule_version, rank_score, reason, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    row["batch_id"], row["group_id"], row.get("result_id"),
+                    row["field_path"], 1 if row.get("adopted") else 0,
+                    json.dumps(row.get("value"), ensure_ascii=False),
+                    1 if row.get("is_empty") else 0,
+                    row.get("validation_level", ""),
+                    float(row.get("source_mtime", 0) or 0),
+                    row.get("source_rel_path", ""), row.get("source_md5", ""),
+                    row.get("source_line"), row.get("selector", ""),
+                    row.get("selector_type", ""), row.get("rule_version", ""),
+                    int(row.get("rank_score", 0)), row.get("reason", ""),
+                    utc_now(),
+                )
+                for row in rows
+            ],
+        )
+
+    def list_arbitration_field_records(self, batch_id: int) -> list[dict]:
+        return self.query(
+            """SELECT * FROM arbitration_field_records WHERE batch_id = ?
+               ORDER BY group_id, id""",
+            (batch_id,),
+        )
+
+    def field_records_for_result(self, result_id: int) -> list[dict]:
+        return self.query(
+            """SELECT * FROM arbitration_field_records WHERE result_id = ?
+               ORDER BY id""",
+            (result_id,),
+        )
+
+    def adopted_field_records(self, batch_id: int) -> list[dict]:
+        return self.query(
+            """SELECT * FROM arbitration_field_records
+               WHERE batch_id = ? AND adopted = 1 ORDER BY id""",
+            (batch_id,),
+        )
+
+    def add_arbitration_conflicts(self, rows: list[dict]) -> None:
+        self.executemany(
+            """INSERT INTO arbitration_conflicts
+               (batch_id, group_id, task_id, rule_id, logical_key, field_path,
+                incumbent_result_id, incoming_result_id, incumbent_value_json,
+                incoming_value_json, incumbent_source, incoming_source,
+                resolution, summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    row["batch_id"], row.get("group_id"), row.get("task_id"),
+                    row.get("rule_id", ""), row.get("logical_key", ""),
+                    row.get("field_path", ""),
+                    row.get("incumbent_result_id"),
+                    row.get("incoming_result_id"),
+                    json.dumps(row.get("incumbent_value"), ensure_ascii=False),
+                    json.dumps(row.get("incoming_value"), ensure_ascii=False),
+                    row.get("incumbent_source", ""),
+                    row.get("incoming_source", ""),
+                    row.get("resolution", "recorded"), row.get("summary", ""),
+                    utc_now(),
+                )
+                for row in rows
+            ],
+        )
+
+    def list_arbitration_conflicts(self, batch_id: int) -> list[dict]:
+        return self.query(
+            "SELECT * FROM arbitration_conflicts WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        )
+
+    def journal(
+        self,
+        batch_id: int,
+        entity: str,
+        entity_id: Optional[int],
+        operation: str,
+        before: Optional[dict],
+    ) -> None:
+        if entity not in JOURNAL_ENTITIES:
+            raise ValueError(f"仲裁撤销日志不支持的实体: {entity}")
+        self.execute(
+            """INSERT INTO arbitration_journal
+               (batch_id, entity, entity_id, operation, before_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (batch_id, entity, entity_id, operation,
+             json.dumps(before, ensure_ascii=False) if before is not None else None,
+             utc_now()),
+        )
+
+    def list_journal(self, batch_id: int) -> list[dict]:
+        return self.query(
+            """SELECT * FROM arbitration_journal WHERE batch_id = ?
+               ORDER BY id DESC""",
+            (batch_id,),
+        )
+
+    def find_active_result(
+        self, task_id: int, rule_id: str, logical_key: str
+    ) -> Optional[dict]:
+        """按规则与逻辑主键查找当前有效结果，供跨批冲突检测。"""
+        rows = self.query(
+            """SELECT * FROM results WHERE task_id = ? AND rule_id = ?
+               AND is_deleted = 0 AND status IN ('valid', 'warning')""",
+            (task_id, rule_id),
+        )
+        return rows[0] if rows else None
+
+    def active_results_for_rule(self, rule_id: str) -> list[dict]:
+        """跨任务查找某规则当前有效结果，用于并发批次写同一逻辑表单的检测。"""
+        return self.query(
+            """SELECT * FROM results WHERE rule_id = ? AND is_deleted = 0
+               AND status IN ('valid', 'warning') ORDER BY id""",
+            (rule_id,),
         )

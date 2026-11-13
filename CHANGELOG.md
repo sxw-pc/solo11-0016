@@ -2,6 +2,27 @@
 
 本项目遵循“主版本.次版本.修订号”的版本号约定。所有变更均保留在本地，不依赖任何外部服务。
 
+## [1.1.0] - 2026-11-13
+
+### 新增
+
+- 字段级结果仲裁模块（`core/arbiter.py`）：作为解析、校验之后、落库之前的独立可回放阶段，不改动既有去重语义与导出台账结构。
+- 仲裁策略：同一批次内按 `rule_id + dedup.primary_key` 归并逻辑表单，逐字段按“非空 > 校验等级 > 来源文件修改时间 > 稳定次序”仲裁，分段编码保证高优先级维度不被反超；策略版本固化为 `arbiter-1.0.0` 并随批次存档。
+- 仲裁档案：被淘汰值连同来源文件相对路径、MD5、行号、选择器、规则版本、仲裁分与可读理由写入 `arbitration_field_records`，每个字段都能追到实际采用的文件与行号。
+- 五张新表：`arbitration_batches`、`arbitration_groups`、`arbitration_field_records`、`arbitration_conflicts`、`arbitration_journal`；`results` 新增 `arbitration_batch_id` 列，旧库启动时自动 `ALTER TABLE` 迁移并保留历史数据。
+- 整批撤销：批次号全局唯一（`ARB-T{任务}-{时间戳}-{序号}`），提交与撤销在 `BEGIN IMMEDIATE` 事务内进行，按撤销日志逆序恢复字段、溯源、快照索引、逻辑删除标记与 `task_files` 状态；任一步失败整体回滚，不产生部分成功。
+- 跨批并发冲突：多线程/多任务写同一逻辑表单时由进程锁加数据库写事务串行化，后到批次不静默覆盖，差异字段写入 `arbitration_conflicts` 并附可读摘要，标记 `recorded_pending_review`。
+- 仲裁回放：依据档案内仲裁分重排核对采用结论，策略升级导致的结论漂移会显式暴露而非静默改写历史。
+- 独立仲裁档案导出：`Archiver.export_arbitration` 支持 CSV/JSON/XLSX（Excel 为「仲裁批次 / 字段仲裁档案 / 跨批冲突」三 Sheet），与既有五 Sheet 台账互不影响。
+- CLI：新增 `arbitration-list`、`arbitration-detail`、`arbitration-replay`、`arbitration-rollback`、`arbitration-export` 子命令；找不到记录、重复撤销、撤销失败均有明确报错。
+- 本地管理界面：新增「仲裁档案」列表页、批次详情页（字段采用/淘汰、跨批冲突、撤销日志）、整批撤销操作与独立档案下载；结果溯源页新增「字段仲裁采用」卡片。
+- 测试：新增仲裁单元、端到端、撤销一致性、并发冲突、独立导出、错误提示、CLI/Web 集成与旧库迁移共 21 个用例；全量 96 个测试通过，1000 表单性能基线仍在预算内。
+
+### 变更
+
+- `TaskRunner` 拆分为两阶段：阶段一并行解析校验、只暂存内存候选；阶段二统一进入仲裁并在单事务内落库，再执行既有去重。去重器在事务内回退为直查以读到本事务未提交行，事务外仍走任务级内存缓存。
+- `SQLiteClient` 增加显式事务（`begin_immediate`/`commit`/`rollback`）与通用撤销日志原语，自动提交行为在事务外保持不变。
+
 ## [1.0.0] - 2026-11-11
 
 ### 新增

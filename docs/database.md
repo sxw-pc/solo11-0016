@@ -13,10 +13,31 @@ tasks 1 ─── n task_files
   │              └── 0..n results（同文件历史版本，按 version）
   ├── n dedup_reports
   ├── n exports
+  ├── n arbitration_batches 1 ─── n arbitration_groups
+  │                                     ├── n arbitration_field_records
+  │                                     └── n arbitration_conflicts
+  │                          1 ─── n arbitration_journal（整批撤销日志）
   └── n rules_versions（按 rule_id + version 去重）
 ```
 
 `results.file_id` 指向产生该结果的 `task_files` 行；源文件被删除时该字段置空，但结果与快照保留。`task_files`、`results`、`validations`、`traces`、`dedup_reports`、`exports` 均随任务级联删除。去重逻辑删除只更新 `results.is_deleted`，不做物理删除。
+
+## 一点五、字段级仲裁阶段（解析校验之后、落库之前）
+
+仲裁是独立且可回放的阶段，不改变既有去重语义与导出台账结构：
+
+```text
+扫描 → 解析 → 校验 → 【Arbiter 字段级仲裁】 → 单事务落库（快照/溯源/校验）
+     → 既有去重（Deduplicator，语义不变） → 导出
+```
+
+- 同一批次内，候选按 `rule_id + dedup.primary_key` 归为同一逻辑表单组；无法计算主键的候选各自成组。
+- 逐字段仲裁，优先级固定为 **非空 > 校验等级（none/info/warning/error）> 来源文件修改时间 > 稳定次序**，分段编码保证高优先级维度不会被低维度反超。
+- 组内冠军候选落仲裁后的合并字段值；其余成员仍各落一条原始结果（保持“每文件一结果”的行数与溯源语义），再交给既有去重逻辑删除。
+- 被淘汰值不删除，连同来源相对路径、MD5、行号、选择器、规则版本与仲裁理由写入 `arbitration_field_records`。
+- 落库全程在一个 `BEGIN IMMEDIATE` 事务内，所有写动作登记 `arbitration_journal`；按批次号撤销时按日志逆序恢复，字段、溯源、快照索引、逻辑删除标记与 `task_files` 状态一起回到批次前，失败则整体回滚，不产生部分成功。
+- 两个批次并发写同一逻辑表单时，后到批次不静默覆盖：差异字段写入 `arbitration_conflicts` 并附可读摘要，处理方式标记为 `recorded_pending_review`。
+
 
 ## 二、表定义
 
@@ -137,24 +158,113 @@ tasks 1 ─── n task_files
 |------|------|------|
 | id | INTEGER PK | 自增 |
 | task_id | INTEGER FK | 任务 |
-| format | TEXT | `csv`/`json`/`xlsx` |
+| format | TEXT | `csv`/`json`/`xlsx`，仲裁档案为 `arbitration_csv` 等 |
 | path | TEXT | 导出文件绝对路径 |
 | sha256 | TEXT | 文件 SHA256 |
 | created_at | TEXT | 时间 |
+
+### 9. arbitration_batches — 仲裁批次
+
+一次 `run` 调用对应一个仲裁批次，批次号 `ARB-T{任务}-{时间戳}-{序号}`，全局唯一。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 批次 ID |
+| batch_no | TEXT UNIQUE | 可读批次号，撤销/回放/导出的入口 |
+| task_id | INTEGER FK | 所属任务 |
+| ruleset_signature | TEXT | 规则集整体签名 |
+| arbiter_version | TEXT | 仲裁策略版本（如 `arbiter-1.0.0`） |
+| rule_versions_json | TEXT | 本批次规则版本清单 |
+| status | TEXT | `committed`/`rolled_back` |
+| candidate_count / group_count | INTEGER | 候选数 / 分组数 |
+| merged_group_count / conflict_count | INTEGER | 多候选合并组数 / 跨批冲突数 |
+| summary_json | TEXT | 策略说明等摘要 |
+| created_at / committed_at / rolled_back_at | TEXT | 时间 |
+| rollback_reason | TEXT | 撤销原因 |
+
+### 10. arbitration_groups — 逻辑表单分组
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 分组 ID |
+| batch_id | INTEGER FK | 所属批次 |
+| rule_id / form_type | TEXT | 规则与表单类型 |
+| logical_key | TEXT | 主键拼接值；单候选组为空 |
+| winner_result_id | INTEGER FK | 承载合并字段值的冠军结果 |
+| merged_data_json | TEXT | 字段级仲裁后的合并数据 |
+| original_data_json | TEXT | 冠军候选的原始提取数据 |
+| candidate_count | INTEGER | 组内候选数 |
+| had_conflict | INTEGER | 组内是否存在字段值冲突 |
+
+### 11. arbitration_field_records — 字段仲裁档案（含被淘汰值）
+
+每个候选的每个字段一行，是字段级溯源与回放的依据。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 记录 ID |
+| batch_id / group_id | INTEGER FK | 批次与分组 |
+| result_id | INTEGER FK | 该候选值所属结果 |
+| field_path | TEXT | 字段路径，支持 `contact.email` |
+| adopted | INTEGER | 1=采用，0=淘汰 |
+| field_value_json | TEXT | 该候选在此字段上的值 |
+| is_empty | INTEGER | 是否为空值 |
+| validation_level | TEXT | 该字段校验等级 |
+| source_mtime | REAL | 来源文件修改时间 |
+| source_rel_path / source_md5 | TEXT | 来源相对路径与 MD5 |
+| source_line | INTEGER | HTML 行号（默认值字段可空） |
+| selector / selector_type | TEXT | 选择器与类型 |
+| rule_version | TEXT | 规则版本 |
+| rank_score | INTEGER | 仲裁分（回放依据） |
+| reason | TEXT | 采用/淘汰的可读理由 |
+
+### 12. arbitration_conflicts — 跨批并发冲突
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 冲突 ID |
+| batch_id / group_id | INTEGER FK | 后到批次与分组 |
+| task_id / rule_id / logical_key | | 冲突定位 |
+| field_path | TEXT | 冲突字段 |
+| incumbent_result_id / incoming_result_id | INTEGER | 既有/新批次结果 |
+| incumbent_value_json / incoming_value_json | TEXT | 两侧值 |
+| incumbent_source / incoming_source | TEXT | 两侧来源文件 |
+| resolution | TEXT | 固定 `recorded_pending_review`，不静默覆盖 |
+| summary | TEXT | 可读冲突摘要 |
+
+### 13. arbitration_journal — 整批撤销日志
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK | 日志 ID |
+| batch_id | INTEGER FK | 所属批次 |
+| entity | TEXT | `results`/`traces`/`validations`/`dedup_reports`/`task_files` |
+| entity_id | INTEGER | 被变更行 ID |
+| operation | TEXT | `insert`/`update`/`delete`/`supersede` |
+| before_json | TEXT | 变更前整行镜像，撤销时据此覆盖恢复 |
+
+撤销按日志 `id` 逆序回放：`insert` 删除、`delete` 按镜像重插、`update` 按镜像覆盖；`supersede` 仅用于在去重之后重新确认同文件新版本的 `superseded` 标记。
+
 
 ## 三、索引
 
 - `idx_results_task(task_id)`：任务结果列表。
 - `idx_results_path(task_id, source_rel_path)`：同文件版本与历史。
+- `idx_results_batch(arbitration_batch_id)`：按仲裁批次反查结果。
 - `idx_traces_result(result_id)`：溯源链查询。
 - `idx_files_task(task_id, status)`：取待处理文件。
+- `idx_arb_group_batch` / `idx_arb_field_group` / `idx_arb_field_result`：仲裁分组与字段档案查询。
+- `idx_arb_conflict_batch` / `idx_arb_journal_batch`：冲突与撤销日志按批次查询。
 
 ## 四、并发与一致性
 
 - 单个 `sqlite3.Connection`，`check_same_thread=False`，所有读写由进程内 `RLock` 串行化。
 - WAL 允许读写并行度更好；`synchronous=NORMAL` 在本地单机场景兼顾可靠性与批量写入性能。
 - 字段校验、溯源、去重与结果写入在同一文件的持久化临界区内完成。
+- 仲裁提交与整批撤销通过 `BEGIN IMMEDIATE` 显式开事务，配合进程内提交锁，保证多线程/多 `TaskRunner` 并发写同一逻辑表单时被串行化；事务内任一步失败都整体 `ROLLBACK`，不会出现半新半旧。
+- 去重器在仲裁事务内回退为直查（同一连接可读到本事务未提交行），事务外仍走任务级内存缓存。
 - 单文件异常只更新 `task_files.status='failed'`，不破坏已完成结果。
+- 旧库通过 `init_schema` 的 `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE` 增量补列迁移，历史数据原样保留。
 
 ## 五、备份、恢复与检查
 

@@ -60,12 +60,30 @@ class Tracer:
                ORDER BY version""",
             (result["task_id"], result["source_rel_path"]),
         )
+        arbitration = self._arbitration_provenance(result_id)
         return {
             "result": result,
             "traces": traces,
             "validations": validations,
             "history": history,
             "snapshot": result.get("snapshot_path", ""),
+            "arbitration": arbitration,
+        }
+
+    def _arbitration_provenance(self, result_id: int) -> dict:
+        """汇总该结果涉及的仲裁批次与字段采用/淘汰记录。"""
+        records = self.db.field_records_for_result(result_id)
+        if not records:
+            return {"in_batch": False, "adopted": [], "superseded": []}
+        batch_ids = sorted({row["batch_id"] for row in records})
+        batches = [
+            self.db.get_arbitration_batch(batch_id) for batch_id in batch_ids
+        ]
+        return {
+            "in_batch": True,
+            "batches": [batch for batch in batches if batch],
+            "adopted": [row for row in records if row["adopted"]],
+            "superseded": [row for row in records if not row["adopted"]],
         }
 
     def compare_versions(self, left_id: int, right_id: int) -> list[str]:
