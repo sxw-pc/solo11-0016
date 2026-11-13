@@ -79,6 +79,21 @@ def normalize_space(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _line_of(text: str, needle: str) -> int:
+    """在原文中定位文本首次出现行号，找不到时返回 1。"""
+    if not needle:
+        return 1
+    index = text.find(needle)
+    if index < 0:
+        return 1
+    return text.count("\n", 0, index) + 1
+
+
+def find_source_line(raw_text: str, needle: str) -> int:
+    """公开的行号定位助手，供溯源模块复用。"""
+    return _line_of(raw_text, needle)
+
+
 def truncate(value: Any, length: int = 120) -> str:
     """截断文本用于日志与界面展示。"""
     text = "" if value is None else str(value)
