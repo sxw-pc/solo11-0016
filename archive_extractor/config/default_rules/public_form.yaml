@@ -1,8 +1,8 @@
 rule_id: public_form
 name: 政务公示表
-version: 1.0.0
+version: 1.1.0
 form_type: public
-description: 适配嵌套表格、公示期间、发布单位与多选标签等公示字段
+description: 适配嵌套表格、公示期间、发布单位与多选标签等公示字段，含字段联动规则
 match: {form_selector: "form#publicForm", marker: 'data-form-type="public"'}
 fields:
   doc_no: {label: 公示编号, selector: 'input[name="doc_no"]', attr: value, type: text, required: true, validators: [{type: regex, pattern: '^GS-\d{4}-\d{4}$', message: 公示编号应为 GS-年份-四位序号}]}
@@ -15,5 +15,26 @@ fields:
   content: {label: 公示内容, selector: 'textarea[name="content"]', type: text, trim: true, required: true, validators: [{type: min_length, value: 8, message: 公示内容至少 8 个字符}]}
   categories: {label: 公示标签, selector: 'input[name="categories"]:checked', attr: value, type: array, item_type: text, all: true, default: []}
   issuer: {label: 发布机构信息, selector: '#publicForm .issuer-box', type: object, fields: {office: {label: 科室, selector: .office, type: text}, address: {label: 地址, selector: .address, attr: data-address, type: text}}}
+  phone_type: {label: 电话类型, type: text}
+  notify_status: {label: 通知状态, type: enum}
+  period_days: {label: 公示天数, type: number}
+derivations:
+  - field: phone_type
+    expression: {type: phone_kind, field: contact_phone, mobile: 手机, landline: 固话, unknown: 未知}
+    on_failure: warning
+  - field: notify_status
+    expression:
+      type: case
+      field: phone_type
+      branches:
+        - {equals: 手机, value: 短信通知}
+        - {equals: 固话, value: 电话通知}
+      default: 暂缓通知
+    on_failure: warning
+  - field: period_days
+    expression: {type: date_diff, start: period_start, end: period_end}
+    on_failure: warning
+constraints:
+  - {type: date_order, start: period_start, end: period_end, level: error, message: 公示结束日期不得早于开始日期}
+  - {type: date_order, start: publish_date, end: period_end, level: warning, message: 公示结束日期早于发布日期，请复核}
 dedup: {primary_key: [doc_no], fuzzy_fields: [title, content], threshold: 0.97}
-validations: [{type: date_order, start: period_start, end: period_end, level: error, message: 公示结束日期不得早于开始日期}, {type: date_order, start: publish_date, end: period_end, level: warning, message: 公示结束日期早于发布日期，请复核}]

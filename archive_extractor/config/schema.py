@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Optional
 
 from archive_extractor.utils.common import RuleError
 
@@ -43,8 +43,10 @@ def normalize_selector_type(field: dict) -> str:
     return str(selector_type).lower()
 
 
-def validate_fields(fields: Any, prefix: str = "") -> None:
+def validate_fields(fields: Any, prefix: str = "",
+                    derived: Optional[set] = None) -> None:
     """递归校验字段定义。"""
+    derived = derived or set()
     _require(isinstance(fields, dict) and bool(fields), f"{prefix}字段定义不能为空")
     for name, field in fields.items():
         path = f"{prefix}.{name}" if prefix else name
@@ -55,11 +57,11 @@ def validate_fields(fields: Any, prefix: str = "") -> None:
         selector_type = normalize_selector_type(field)
         _require(selector_type in VALID_SELECTORS, f"{path} 选择器类型不支持")
         if field_type == "object":
-            validate_fields(field.get("fields", {}), path)
+            validate_fields(field.get("fields", {}), path, derived)
         elif field_type == "array":
             item_type = field.get("item_type", "text")
             _require(item_type in VALID_TYPES - {"object"}, f"{path} 数组项类型不支持")
-        if "selector" not in field and "default" not in field:
+        if name not in derived and "selector" not in field and "default" not in field:
             raise RuleError(f"字段 {path} 缺少 selector 或 default")
         validators = field.get("validators", [])
         _require(isinstance(validators, list), f"{path}.validators 必须是列表")
@@ -98,7 +100,11 @@ def validate_rule(rule: dict) -> dict:
         bool(match.get("form_selector") or match.get("marker")),
         "match 至少配置 form_selector 或 marker",
     )
-    validate_fields(rule["fields"])
+    derivations = rule.get("derivations", []) or []
+    derived_names = {
+        item.get("field") for item in derivations if isinstance(item, dict)
+    }
+    validate_fields(rule["fields"], derived=derived_names)
     dedup = rule.get("dedup", {})
     _require(isinstance(dedup, dict), "dedup 必须是对象")
     if dedup:
@@ -115,7 +121,11 @@ def validate_rule(rule: dict) -> dict:
         _require(item.get("type") in {"date_order", "compare"}, "跨字段校验类型不支持")
         level = item.get("level", "error")
         _require(level in VALID_LEVELS, "跨字段校验等级非法")
+    _require(isinstance(rule.get("derivations", []), list), "derivations 必须是列表")
+    _require(isinstance(rule.get("constraints", []), list), "constraints 必须是列表")
     rule.setdefault("form_type", rule["rule_id"])
     rule.setdefault("description", "")
     rule.setdefault("validations", [])
+    rule.setdefault("derivations", [])
+    rule.setdefault("constraints", [])
     return rule

@@ -1,8 +1,8 @@
 rule_id: register_form
 name: 企业登记表
-version: 1.0.0
+version: 1.1.0
 form_type: register
-description: 适配企业登记、主体资格、注册资本与标签等登记字段
+description: 适配企业登记、主体资格、注册资本与标签等登记字段，含字段联动规则
 match: {form_selector: "form#registerForm", marker: 'data-form-type="register"'}
 fields:
   reg_no: {label: 登记编号, selector: 'input[name="reg_no"]', attr: value, type: text, required: true, validators: [{type: regex, pattern: '^DJ-\d{4}-\d{4}$', message: 登记编号应为 DJ-年份-四位序号}]}
@@ -15,5 +15,31 @@ fields:
   status: {label: 登记状态, selector: 'select[name="status"]', type: enum, required: true, validators: [{type: enum, values: [存续, 在业, 注销, 吊销], message: 登记状态不在允许范围内}]}
   business_scope: {label: 经营范围, selector: 'textarea[name="business_scope"]', type: text, trim: true}
   tags: {label: 企业标签, selector: 'input[name="tags"]:checked', attr: value, type: array, item_type: text, all: true, default: []}
+  establish_year: {label: 成立年份, type: text}
+  is_active: {label: 是否在营, type: boolean}
+  reg_summary: {label: 登记摘要, type: text}
+derivations:
+  - field: establish_year
+    expression: {type: slice, field: establish_date, start: 0, end: 4}
+    on_failure: warning
+  - field: is_active
+    expression:
+      type: case
+      field: status
+      branches:
+        - {equals: 存续, value: true}
+        - {equals: 在业, value: true}
+      default: false
+    on_failure: warning
+  - field: reg_summary
+    expression:
+      type: concat
+      parts:
+        - {field: reg_no}
+        - {field: entity_name}
+        - {field: establish_year}
+      separator: '|'
+    on_failure: warning
+constraints:
+  - {type: compare, left: registered_capital, op: '>=', right: 0, level: error, message: 注册资本不得为负数}
 dedup: {primary_key: [reg_no], fuzzy_fields: [entity_name, address], threshold: 0.97}
-validations: [{type: compare, left: registered_capital, op: '>=', right: 0, level: error, message: 注册资本不得为负数}]

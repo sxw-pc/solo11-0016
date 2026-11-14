@@ -39,11 +39,14 @@
   <h2>字段溯源（{{ chain.traces|length }}）</h2>
   {% if chain.traces %}
   <table>
-    <thead><tr><th>字段</th><th>方式</th><th>选择器</th><th>行号</th><th>原始值</th><th>规则版本</th><th>提取时间</th></tr></thead>
+    <thead><tr><th>字段</th><th>方式</th><th>选择器/表达式</th><th>行号</th><th>原始值/上游</th><th>联动状态</th><th>规则版本</th><th>提取时间</th></tr></thead>
     <tbody>{% for trace in chain.traces %}<tr>
-      <td>{{ trace.field }}</td><td>{{ trace.selector_type }}</td><td><code>{{ trace.selector }}</code></td>
-      <td><a href="{{ url_for('snapshot_preview', result_id=chain.result.id) }}#L{{ trace.source_line }}" target="_blank">{{ trace.source_line }}</a></td>
-      <td>{{ trace.raw_value }}</td><td class="muted">{{ trace.rule_version }}</td><td class="muted">{{ trace.extracted_at }}</td>
+      <td>{{ trace.field }}</td><td>{{ trace.selector_type }}</td>
+      <td><code>{{ trace.expression if trace.expression else trace.selector }}</code></td>
+      <td>{% if trace.source_line %}<a href="{{ url_for('snapshot_preview', result_id=chain.result.id) }}#L{{ trace.source_line }}" target="_blank">{{ trace.source_line }}</a>{% else %}—{% endif %}</td>
+      <td>{{ trace.upstream_fields if trace.upstream_fields else trace.raw_value }}</td>
+      <td>{% if trace.linkage_status %}<span class="tag {{ 'status-valid' if trace.linkage_status == 'ok' else 'level-error' }}">{{ trace.linkage_status }}</span>{% if trace.linkage_reason %}<br><span class="muted">{{ trace.linkage_reason }}</span>{% endif %}{% else %}—{% endif %}</td>
+      <td class="muted">{{ trace.rule_version }}</td><td class="muted">{{ trace.extracted_at }}</td>
     </tr>{% endfor %}</tbody>
   </table>
   {% else %}<p class="muted">未记录字段级溯源。</p>{% endif %}

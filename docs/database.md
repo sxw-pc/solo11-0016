@@ -111,12 +111,19 @@ tasks 1 ─── n task_files
 | id | INTEGER PK | 自增 |
 | result_id | INTEGER FK | 结果 |
 | field | TEXT | 字段路径 |
-| selector / selector_type | TEXT | 选择器与类型（css/xpath/regex） |
-| source_line | INTEGER | HTML 行号 |
-| raw_value | TEXT | 原始值（最多 500 字符） |
+| selector / selector_type | TEXT | 选择器与类型（css/xpath/regex）；联动行为 `derivation`/`constraint` |
+| source_line | INTEGER | HTML 行号；联动行为 0 |
+| raw_value | TEXT | 原始值（最多 500 字符）；派生行为上游输入摘要 |
 | extracted_at | TEXT | 提取时间 |
 | rule_version | TEXT | 规则版本 |
 | source_md5 | TEXT | 源文件 MD5 |
+| derived | INTEGER | 是否派生字段（1 派生 / 0 普通），默认 0 |
+| upstream_fields | TEXT | 派生/约束引用的上游字段，逗号分隔 |
+| expression | TEXT | 派生表达式摘要（如 `concat:-`、`slice:d[0:4]`） |
+| linkage_status | TEXT | 联动状态：`ok`/`failed`/`degraded`/`violated`/`skipped`，普通字段为空 |
+| linkage_reason | TEXT | 降级或违规原因 |
+
+普通字段溯源与联动溯源共用一张表。派生字段行（`selector_type='derivation'`）记录由哪些上游字段、哪条表达式、哪个规则版本算出；约束行（`selector_type='constraint'`）记录校验结果。老数据库打开时通过 `ALTER TABLE` 自动补齐后五列，历史行 `derived=0`、联动列默认空，照常可读。
 
 ### 7. dedup_reports — 去重报告
 

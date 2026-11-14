@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS traces (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  result_id INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
  field TEXT, selector TEXT, selector_type TEXT, source_line INTEGER,
- raw_value TEXT, extracted_at TEXT, rule_version TEXT, source_md5 TEXT);
+ raw_value TEXT, extracted_at TEXT, rule_version TEXT, source_md5 TEXT,
+ derived INTEGER DEFAULT 0, upstream_fields TEXT DEFAULT '',
+ expression TEXT DEFAULT '', linkage_status TEXT DEFAULT '',
+ linkage_reason TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS dedup_reports (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
@@ -62,3 +65,12 @@ TASK_FIELDS = {
     "failed_count", "error_message", "started_at", "finished_at",
     "updated_at",
 }
+
+# 老数据库增量迁移：(表, 列, 列定义)，已存在则跳过
+TRACE_MIGRATIONS = [
+    ("traces", "derived", "INTEGER DEFAULT 0"),
+    ("traces", "upstream_fields", "TEXT DEFAULT ''"),
+    ("traces", "expression", "TEXT DEFAULT ''"),
+    ("traces", "linkage_status", "TEXT DEFAULT ''"),
+    ("traces", "linkage_reason", "TEXT DEFAULT ''"),
+]

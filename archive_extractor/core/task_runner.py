@@ -10,6 +10,7 @@ from typing import Optional
 from archive_extractor.config.loader import load_rules, rule_version_payload
 from archive_extractor.core.deduplicator import Deduplicator
 from archive_extractor.core.encoder import read_html
+from archive_extractor.core.linkage import LinkageEngine
 from archive_extractor.core.parser import FormExtractor
 from archive_extractor.core.scanner import DirectoryScanner
 from archive_extractor.core.tracer import Tracer
@@ -135,6 +136,10 @@ class TaskRunner:
             raise
         self.db.save_rule_versions(rule_version_payload(ruleset))
         extractor = FormExtractor(ruleset)
+        linkage_engines = {
+            rule["rule_id"]: LinkageEngine(rule, rule["_linkage_graph"])
+            for rule in ruleset.all()
+        }
         workers = max(1, int(config.get("concurrency", 1)))
         remaining_limit = limit if limit is not None else self.max_files
         processed = 0
@@ -153,7 +158,9 @@ class TaskRunner:
                         self.db.update_task(task_id, status="paused")
                         break
                 batch = pending[:workers]
-                outcomes = self._run_batch(batch, extractor, ruleset, task_id)
+                outcomes = self._run_batch(
+                    batch, extractor, linkage_engines, ruleset, task_id
+                )
                 processed += len(batch)
                 self.db.refresh_task_counts(task_id)
                 if any(outcome.get("cancelled") for outcome in outcomes):
@@ -169,27 +176,46 @@ class TaskRunner:
             self.deduplicator.clear_cache(task_id)
         return self._task(task_id)
 
-    def _run_batch(self, batch, extractor, ruleset, task_id) -> list[dict]:
+    def _run_batch(self, batch, extractor, linkage_engines, ruleset,
+                   task_id) -> list[dict]:
         workers = min(len(batch), max(1, int(self._concurrency(task_id))))
         if workers == 1:
-            return [self._process_file(batch[0], extractor, ruleset, task_id)]
+            return [
+                self._process_file(
+                    batch[0], extractor, linkage_engines, ruleset, task_id
+                )
+            ]
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
-                pool.submit(self._process_file, row, extractor, ruleset, task_id)
+                pool.submit(
+                    self._process_file, row, extractor, linkage_engines,
+                    ruleset, task_id,
+                )
                 for row in batch
             ]
             return [future.result() for future in futures]
 
-    def _process_file(self, row, extractor, ruleset, task_id) -> dict:
+    def _process_file(self, row, extractor, linkage_engines, ruleset,
+                      task_id) -> dict:
         self.db.update_task_file(row["id"], status="processing")
         try:
             extracted = self._extract_with_timeout(row, extractor, ruleset)
             rule = ruleset.get(extracted["rule_id"])
+            linkage = linkage_engines[extracted["rule_id"]]
+            linkage.evaluate(extracted)
+            linkage_block = extracted.get("linkage", {})
             issues = validate_data(rule, extracted["data"])
             for error in extracted.get("errors", []):
                 issues.append(
                     ValidationIssue(
                         "error", error["field"], error["message"], "conversion"
+                    )
+                )
+            for issue in linkage_block.get("issues", []):
+                issues.append(
+                    ValidationIssue(
+                        issue["level"], issue["field"], issue["message"],
+                        issue["validator"],
                     )
                 )
             level = highest_level(issues)
@@ -222,8 +248,13 @@ class TaskRunner:
                     "snapshot_path": snapshot, "version": version,
                 })
                 self.db.add_validations(result_id, issues_to_dicts(issues))
+                all_traces = list(extracted["traces"]) + linkage_block.get(
+                    "traces", []
+                )
+                for trace in linkage_block.get("traces", []):
+                    trace.setdefault("source_md5", row["md5"])
                 self.tracer.record(
-                    result_id, extracted["traces"], row["md5"],
+                    result_id, all_traces, row["md5"],
                     extracted["rule_version"],
                 )
                 if status in {"valid", "warning"}:
@@ -288,6 +319,13 @@ class TaskRunner:
         count = self.db.retry_failed(task_id)
         self.db.update_task(task_id, status="paused", error_message=None)
         return count
+
+    def rederive(self, task_id: int, rel_path: str,
+                 changed_fields: list[str]) -> dict:
+        """不重新解析源文件，仅按依赖图重算受影响的派生字段与约束。"""
+        from archive_extractor.core.rederive import rederive_result
+
+        return rederive_result(self, task_id, rel_path, changed_fields)
 
     def delete(self, task_id: int) -> None:
         if self._task(task_id)["status"] == "running":

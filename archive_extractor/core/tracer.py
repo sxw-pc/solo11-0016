@@ -21,23 +21,34 @@ class Tracer:
     def record(
         self, result_id: int, traces: list[dict], source_md5: str, rule_version: str
     ) -> None:
-        """批量写入字段级溯源，包含行号、选择器与规则版本。"""
+        """批量写入字段级溯源，包含行号、选择器与规则版本。
+
+        普通字段溯源与联动溯源共用一张表；联动行额外携带上游字段、
+        表达式与联动状态，未提供这些键时按普通字段行写入，老调用方无感。
+        """
         self.db.executemany(
             """INSERT INTO traces
                (result_id, field, selector, selector_type, source_line,
-                raw_value, extracted_at, rule_version, source_md5)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                raw_value, extracted_at, rule_version, source_md5,
+                derived, upstream_fields, expression, linkage_status,
+                linkage_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     result_id,
                     trace["field"],
-                    trace["selector"],
-                    trace["selector_type"],
+                    trace.get("selector", ""),
+                    trace.get("selector_type", "css"),
                     trace["source_line"],
                     trace["raw_value"],
                     trace.get("extracted_at", utc_now()),
-                    rule_version,
-                    source_md5,
+                    trace.get("rule_version", rule_version),
+                    trace.get("source_md5", source_md5),
+                    int(trace.get("derived", 0)),
+                    trace.get("upstream_fields", ""),
+                    trace.get("expression", ""),
+                    trace.get("linkage_status", ""),
+                    trace.get("linkage_reason", ""),
                 )
                 for trace in traces
             ],

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from archive_extractor.utils.common import ensure_dir, utc_now
-from archive_extractor.storage.db_schema import SCHEMA, TASK_FIELDS
+from archive_extractor.storage.db_schema import SCHEMA, TASK_FIELDS, TRACE_MIGRATIONS
 
 
 class SQLiteClient:
@@ -28,7 +28,20 @@ class SQLiteClient:
     def init_schema(self) -> None:
         with self._lock:
             self.conn.executescript(SCHEMA)
+            self._migrate()
             self.conn.commit()
+
+    def _migrate(self) -> None:
+        """对老数据库补齐联动溯源列，已存在的列自动跳过。"""
+        existing = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(traces)").fetchall()
+        }
+        for table, column, definition in TRACE_MIGRATIONS:
+            if column not in existing:
+                self.conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                )
 
     def close(self) -> None:
         with self._lock:
@@ -282,6 +295,50 @@ class SQLiteClient:
             [(result_id, item["level"], item["field"], item["message"],
               item.get("validator", "")) for item in issues],
         )
+
+    def replace_linkage_traces(self, result_id: int, traces: list[dict]) -> None:
+        """局部重算后，替换该结果的联动溯源行（普通字段溯源保持不动）。"""
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM traces WHERE result_id = ? AND derived IS NOT NULL "
+                "AND selector_type IN ('derivation', 'constraint')",
+                (result_id,),
+            )
+            self.conn.executemany(
+                """INSERT INTO traces
+                   (result_id, field, selector, selector_type, source_line,
+                    raw_value, extracted_at, rule_version, source_md5,
+                    derived, upstream_fields, expression, linkage_status,
+                    linkage_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        result_id, trace["field"], trace.get("selector", ""),
+                        trace.get("selector_type", ""),
+                        trace.get("source_line", 0),
+                        str(trace.get("raw_value", ""))[:500],
+                        trace.get("extracted_at", utc_now()),
+                        trace.get("rule_version", ""),
+                        trace.get("source_md5", ""),
+                        int(trace.get("derived", 0)),
+                        trace.get("upstream_fields", ""),
+                        trace.get("expression", ""),
+                        trace.get("linkage_status", ""),
+                        trace.get("linkage_reason", ""),
+                    )
+                    for trace in traces
+                ],
+            )
+            self.conn.commit()
+
+    def linkage_states(self, result_id: int) -> dict:
+        """读取派生字段最近一次联动状态，供增量重算继承。"""
+        rows = self.query(
+            """SELECT field, linkage_status FROM traces WHERE result_id = ?
+               AND selector_type = 'derivation'""",
+            (result_id,),
+        )
+        return {row["field"]: row["linkage_status"] for row in rows}
 
     def add_dedup_report(self, report: dict) -> int:
         return self.execute(

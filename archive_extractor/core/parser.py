@@ -111,10 +111,16 @@ class FormExtractor:
         except Exception as exc:
             raise ParseError(f"HTML 解析失败: {exc}") from exc
         rule = self.match_rule(soup, raw_text)
+        derived = set(rule["_linkage_graph"].derived_fields) if rule.get(
+            "_linkage_graph"
+        ) else set()
         data: dict[str, Any] = {}
         traces: list[dict] = []
         errors: list[dict] = []
         for name, field in rule["fields"].items():
+            if name in derived:
+                # 派生字段没有 selector/default，其值由联动层计算，解析层跳过
+                continue
             try:
                 value, field_traces = self._extract_field(
                     soup, tree, raw_text, name, field

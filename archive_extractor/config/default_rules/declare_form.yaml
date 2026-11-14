@@ -1,17 +1,19 @@
 rule_id: declare_form
 name: 企业申报表
-version: 1.0.0
+version: 1.1.0
 form_type: declare
-description: 适配申报编号、单位信息、联系人、金额与附件等常见申报字段
+description: 适配申报编号、单位信息、联系人、金额与附件等常见申报字段，含字段联动规则
 match: {form_selector: "form#declareForm", marker: 'data-form-type="declare"'}
 fields:
   declare_no: {label: 申报编号, selector: 'input[name="declare_no"]', attr: value, type: text, required: true, validators: [{type: regex, pattern: '^SB-\d{4}-\d{4}$', message: 申报编号应为 SB-年份-四位序号}]}
   applicant: {label: 申报单位, selector: '#declareForm .applicant', type: text, required: true, validators: [{type: min_length, value: 2, message: 申报单位名称至少 2 个字符}, {type: max_length, value: 60, message: 申报单位名称不得超过 60 个字符}]}
   credit_code: {label: 统一社会信用代码, selector: 'input[name="credit_code"]', attr: value, type: text, required: true, validators: [{type: credit_code, message: 统一社会信用代码格式不正确}]}
   category: {label: 申报类别, selector: 'select[name="category"]', type: enum, required: true, validators: [{type: enum, values: [税收优惠, 财政补贴, 项目扶持, 人才奖励], message: 申报类别不在允许范围内}]}
+  district_code: {label: 区县代码, selector: 'input[name="district_code"]', attr: value, type: text, default: '110101', validators: [{type: regex, pattern: '^\d{6}$', message: 区县代码应为 6 位数字}]}
   contact_name: {label: 联系人, selector: 'input[name="contact_name"]', attr: value, type: text, required: true}
   contact_phone: {label: 联系电话, selector: 'input[name="contact_phone"]', attr: value, type: text, required: true, validators: [{type: phone, message: 联系电话格式不正确}]}
   apply_date: {label: 申报日期, selector: 'input[name="apply_date"]', attr: value, type: date, required: true}
+  register_date: {label: 登记日期, selector: 'input[name="register_date"]', attr: value, type: date}
   project_name: {label: 项目名称, selector: '#declareForm .project-name', type: text, required: true}
   amount: {label: 申报金额, selector: '#declareForm .amount', type: number, required: true, validators: [{type: range, min: 0, max: 100000000, message: 申报金额必须为非负数且不超过一亿元}]}
   is_urgent: {label: 是否加急, selector: 'input[name="is_urgent"]', attr: value, type: boolean, default: false}
@@ -19,5 +21,40 @@ fields:
   scope: {label: 申报范围, selector: 'textarea[name="scope"]', type: text, trim: true, validators: [{type: max_length, value: 500, message: 申报范围不得超过 500 个字符}]}
   attachments: {label: 附件列表, selector: 'input[name="attachments"]:checked', attr: value, type: array, item_type: text, all: true, default: []}
   contact: {label: 联系信息, selector: '#declareForm .contact-box', type: object, fields: {department: {label: 部门, selector: .dept, type: text, required: true}, email: {label: 邮箱, selector: .email, attr: data-email, type: text, validators: [{type: email, message: 联系邮箱格式不正确}]}}}
+  phone_type: {label: 电话类型, type: text}
+  notify_status: {label: 通知状态, type: enum}
+  apply_year: {label: 申报年份, type: text}
+  serial_no: {label: 申报流水号, type: text}
+  record_no: {label: 备案编号, type: text}
+derivations:
+  - field: phone_type
+    expression: {type: phone_kind, field: contact_phone, mobile: 手机, landline: 固话, unknown: 未知}
+    on_failure: warning
+  - field: notify_status
+    expression:
+      type: case
+      field: phone_type
+      branches:
+        - {equals: 手机, value: 短信通知}
+        - {equals: 固话, value: 电话通知}
+      default: 暂缓通知
+    on_failure: warning
+  - field: apply_year
+    expression: {type: slice, field: apply_date, start: 0, end: 4}
+    on_failure: warning
+  - field: serial_no
+    expression: {type: slice, field: declare_no, start: 8}
+    on_failure: warning
+  - field: record_no
+    expression:
+      type: concat
+      parts:
+        - {field: district_code}
+        - {field: apply_year}
+        - {field: serial_no}
+      separator: '-'
+    on_failure: warning
+constraints:
+  - {type: date_order, start: register_date, end: apply_date, level: error, message: 申报日期不能早于登记日期}
+  - {type: compare, left: amount, op: '>', right: 0, level: info, message: 申报金额为零时建议人工复核}
 dedup: {primary_key: [declare_no], fuzzy_fields: [applicant, project_name], threshold: 0.97}
-validations: [{type: compare, left: amount, op: '>', right: 0, level: info, message: 申报金额为零时建议人工复核}]

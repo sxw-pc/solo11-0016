@@ -4,11 +4,12 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import yaml
 
 from archive_extractor.config.schema import validate_rule
+from archive_extractor.core.linkage.graph import build_graph
 from archive_extractor.utils.common import RuleError, utc_now
 
 PathLike = Union[str, Path]
@@ -23,12 +24,22 @@ class RuleSet:
         self.source_dir = source_dir
         self.loaded_at = utc_now()
         self._versions = {}
+        self._graphs: dict[str, Any] = {}
         for rule in rules:
             canonical = json.dumps(rule, ensure_ascii=False, sort_keys=True)
             digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
             self._versions[rule["rule_id"]] = digest
             rule["_content_hash"] = digest
             rule["_effective_version"] = f"{rule['version']}+{digest[:8]}"
+        # 内容摘要计算完成后再构建依赖图：环与非法引用在加载期直接报错
+        for rule in rules:
+            graph = build_graph(rule)
+            rule["_linkage_graph"] = graph
+            self._graphs[rule["rule_id"]] = graph
+
+    def graph_for(self, rule_id: str):
+        """返回规则的字段联动依赖图。"""
+        return self._graphs[rule_id]
 
     @property
     def signature(self) -> str:

@@ -228,7 +228,7 @@ class Archiver:
         self._append_header(
             sheet,
             ["结果ID", "文件", "字段", "选择器", "方式", "行号", "规则版本",
-             "原始值"],
+             "原始值", "是否派生", "上游字段", "表达式", "联动状态", "降级原因"],
             font,
             fill,
         )
@@ -237,9 +237,13 @@ class Archiver:
                 row["result_id"], row["source_rel_path"], row["field"],
                 row["selector"], row["selector_type"], row["source_line"],
                 row["rule_version"], row["raw_value"],
+                "是" if row.get("derived") else "",
+                row.get("upstream_fields", ""), row.get("expression", ""),
+                row.get("linkage_status", ""), row.get("linkage_reason", ""),
             ])
         if not traces:
-            sheet.append(["", "", "", "", "", "", "", "未启用溯源导出"])
+            sheet.append(["", "", "", "", "", "", "", "未启用溯源导出",
+                          "", "", "", "", ""])
         self._auto_width(sheet)
 
     def export_error_list(self, task_id: int, output: Path | str) -> Path:

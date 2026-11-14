@@ -64,6 +64,17 @@ def register_extra_commands(group) -> None:
         report = Deduplicator(ctx.obj["db"]).report(task_id)
         click.echo(json.dumps(report, ensure_ascii=False, indent=2))
 
+    @group.command("rederive")
+    @click.argument("task_id", type=int)
+    @click.argument("rel_path")
+    @click.option("--field", "fields", multiple=True, required=True,
+                  help="发生变化的上游字段，可多次传入")
+    @click.pass_context
+    def rederive_command(ctx, task_id, rel_path, fields):
+        """按依赖图局部重算派生字段与约束（不重解析源文件）。"""
+        outcome = _runner(ctx).rederive(task_id, rel_path, list(fields))
+        click.echo(json.dumps(outcome, ensure_ascii=False, indent=2))
+
     @group.command("clean-demo")
     @click.pass_context
     def clean_demo_command(ctx):

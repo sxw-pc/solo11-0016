@@ -58,7 +58,9 @@ def test_extract_declare_full(sample_declare_text, ruleset):
     fields = {trace["field"] for trace in result["traces"]}
     assert {"declare_no", "contact.department", "attachments"} <= fields
     assert all(trace["source_line"] >= 1 for trace in result["traces"])
-    assert result["rule_version"].startswith("1.0.0+")
+    assert result["rule_version"].startswith(
+        f"{ruleset.get(result['rule_id'])['version']}+"
+    )
     assert not result["errors"]
 
 

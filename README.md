@@ -1,6 +1,6 @@
 # 档采匠（Archive Extractor）
 
-**版本：1.0.0** · 纯本地、离线、配置驱动的静态 HTML 表单批量采集与归档工具
+**版本：1.1.0** · 纯本地、离线、配置驱动的静态 HTML 表单批量采集与归档工具
 
 ## 1. 项目定位
 
@@ -11,7 +11,8 @@
 核心能力：
 
 - **配置驱动**：新增表单类型只改 YAML，不改核心代码。
-- **全链路溯源**：结果 → 源文件 MD5 → 行号 → 选择器 → 规则版本 → 原始快照。
+- **字段联动**：规则可声明字段派生（拼接、切片、条件映射等）与跨字段约束；依赖图加载期环检测，抽取后按拓扑序求值，失败按路径降级，支持局部重算。
+- **全链路溯源**：结果 → 源文件 MD5 → 行号 → 选择器 → 规则版本 → 原始快照；派生字段额外记录上游字段、表达式与联动状态。
 - **合规校验**：必填、格式、范围、枚举、跨字段逻辑校验，按错误/警告/提示分级。
 - **精确与模糊去重**：逻辑删除、保留最新、可恢复、可出报告。
 - **任务化处理**：并发、超时、失败隔离、断点续跑、增量重跑、历史版本保留。
@@ -154,6 +155,7 @@ Excel 台账固定包含「批次信息、提取统计、结果明细、错误�
 ## 5. 核心概念
 
 - **提取规则（Rule）**：一个 YAML 文件描述一类表单如何匹配、字段如何选取、如何转换与校验。加载时计算内容摘要，生成 `版本号+摘要前 8 位` 的有效版本，例如 `1.0.0+a1b2c3d4`。规则文件改动后版本自动变化。
+- **字段联动（Linkage）**：规则在 `derivations` 声明字段派生（A 由 B、C 拼接或条件映射得到），在 `constraints` 声明跨字段约束（X 晚于 Y 才合法）。加载时构建依赖图并检测环；抽取后按拓扑序求值，上游失败/为空时派生字段按路径降级并留痕；支持不重解析源文件的局部重算。详见 [`docs/yaml_schema.md`](docs/yaml_schema.md) 第五节。
 - **任务批次（Task）**：一次扫描与处理的范围，记录扫描根目录、规则目录、并发数、配置、进度和状态。任务文件清单保存在 `task_files`，支持增量比对与断点续跑。
 - **溯源链（Trace Chain）**：结果、字段级溯源、校验记录、快照、同文件历史版本的集合。每个字段记录源文件相对路径、MD5、行号、选择器、选择器类型、原始值、规则版本、提取时间。
 - **去重策略**：先用 `primary_key` 做精确匹配；未命中时按 `fuzzy_fields` 计算编辑距离相似度，并取各字段相似度的最小值。达到阈值即判重。默认保留源文件修改时间较新的记录，另一条逻辑删除并写入 `dedup_reports`。
@@ -252,6 +254,7 @@ python -m archive_extractor.cli [--data-dir DIR] [--timeout 秒] 子命令 ...
 | `status ID` | 查看任务进度与统计 | `python -m archive_extractor.cli status 1` |
 | `export ID` | 导出台账 | `python -m archive_extractor.cli export 1 --format all` |
 | `trace RESULT_ID` | 查看完整溯源链 JSON | `python -m archive_extractor.cli trace 1` |
+| `rederive ID PATH` | 按依赖图局部重算派生字段与约束 | `python -m archive_extractor.cli rederive 1 a.html --field phone` |
 | `task-action ID ACTION` | 暂停/继续/取消/重试/删除 | `python -m archive_extractor.cli task-action 1 retry` |
 | `errors ID OUT.csv` | 导出错误清单 | `python -m archive_extractor.cli errors 1 errors.csv` |
 | `dedup ID` | 查看去重报告 | `python -m archive_extractor.cli dedup 1` |
@@ -304,7 +307,7 @@ SQLite 使用 WAL、`synchronous=NORMAL`、外键约束和常用索引。同一�
 
 ### 版本日志
 
-当前版本 **1.0.0**：完成 F1–F8 全部功能、三类默认规则、80 个合成 mock 文件、离线 CLI/Flask 界面、五 Sheet Excel 台账、SHA256 校验、75 个测试用例与性能基线。详见 [`CHANGELOG.md`](CHANGELOG.md)。
+当前版本 **1.1.0**：在 1.0.0 基础上新增字段联动层（派生、约束、依赖图环检测、失败降级、局部重算、联动溯源），三套默认规则升级并加入真实联动，58/10/10 统计保持不变。历史版本与完整变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ### 贡献指南
 
